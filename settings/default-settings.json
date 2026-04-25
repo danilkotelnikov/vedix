@@ -1,0 +1,72 @@
+{
+  "plugins": {
+    "ai-scientist": {
+      "agents": {
+        "ideator":             { "model": "opus",   "thinking_budget": 48000 },
+        "codebase_scanner":    { "model": "sonnet", "thinking_budget": 8000 },
+        "literature_searcher": { "model": "sonnet", "thinking_budget": 8000 },
+        "hypothesizer":        { "model": "opus",   "thinking_budget": 64000 },
+        "code_generator":      { "model": "opus",   "thinking_budget": 48000 },
+        "experiment_runner":   { "model": "sonnet", "thinking_budget": 8000 },
+        "plotter":             { "model": "sonnet", "thinking_budget": 8000 },
+        "manuscript_writer":   { "model": "opus",   "thinking_budget": 48000 },
+        "citator":             { "model": "sonnet", "thinking_budget": 8000 },
+        "reviewer":            { "model": "opus",   "thinking_budget": 64000 },
+        "meta_analyst":        { "model": "sonnet", "thinking_budget": 8000 },
+        "fixer":               { "model": "sonnet", "thinking_budget": 16000 }
+      },
+      "interactivity": "checkpoints",
+      "auto_fix_max_rounds": 3,
+      "fixer_max_rounds_per_phase": 3,
+      "phases": {
+        "codebase_scan": "auto",
+        "novelty_check": "on",
+        "plot_aggregation": "on",
+        "citation_enrichment": { "enabled": true, "max_rounds": 5 },
+        "self_review": "on",
+        "latex_compile": "auto",
+        "word_export": "auto",
+        "visual_validation": "on",
+        "knowledge_index": "on",
+        "meta_analysis": "on"
+      },
+      "manuscript": {
+        "latex_template": "aiscientist-default",
+        "word_template": "arxiv-shared-1",
+        "tone": "technical",
+        "citation_density": "medium"
+      },
+      "literature": {
+        "max_papers": 50,
+        "year_floor": 2024,
+        "fallback_year_floor": 2020,
+        "min_unique_threshold": 15,
+        "metadata_validation": "strict",
+        "openalex_rate_limit_per_second": 5,
+        "sources": {
+          "semantic_scholar": true,
+          "openalex": true,
+          "arxiv": true,
+          "biorxiv": true,
+          "pubmed": true,
+          "consensus": true,
+          "annas_archive": true
+        }
+      },
+      "credentials": {
+        "openalex_email": "${env:OPENALEX_EMAIL}",
+        "semantic_scholar_key": "${env:SEMANTIC_SCHOLAR_KEY}"
+      },
+      "storage": {
+        "knowledge_root": "~/.ai-scientist",
+        "default_output_root": "./ai-scientist-output",
+        "retain_completed_jobs_days": 90
+      },
+      "experiment": {
+        "timeout_seconds": 300,
+        "venv_per_job": true,
+        "max_dependency_install_attempts": 2
+      }
+    }
+  }
+}

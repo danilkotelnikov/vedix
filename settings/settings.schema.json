@@ -1,0 +1,95 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ai-scientist plugin settings",
+  "type": "object",
+  "properties": {
+    "plugins": {
+      "type": "object",
+      "properties": {
+        "ai-scientist": {
+          "type": "object",
+          "properties": {
+            "agents": {
+              "type": "object",
+              "patternProperties": {
+                "^[a-z_]+$": {
+                  "type": "object",
+                  "properties": {
+                    "model": { "enum": ["opus", "sonnet", "haiku", "inherit"] },
+                    "thinking_budget": { "type": "integer", "minimum": 0, "maximum": 128000 }
+                  },
+                  "required": ["model", "thinking_budget"]
+                }
+              }
+            },
+            "interactivity": { "enum": ["none", "checkpoints", "full"] },
+            "auto_fix_max_rounds": { "type": "integer", "minimum": 0, "maximum": 10 },
+            "fixer_max_rounds_per_phase": { "type": "integer", "minimum": 0, "maximum": 10 },
+            "phases": {
+              "type": "object",
+              "additionalProperties": {
+                "oneOf": [
+                  { "enum": ["on", "off", "auto"] },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "enabled": { "type": "boolean" },
+                      "max_rounds": { "type": "integer", "minimum": 0 }
+                    }
+                  }
+                ]
+              }
+            },
+            "manuscript": {
+              "type": "object",
+              "properties": {
+                "latex_template": { "enum": ["aiscientist-default", "overleaf-minimal", "elsevier-cas-sc", "ieee-conference", "acm-sig"] },
+                "word_template": { "enum": ["arxiv-shared-1", "minimalist", "two-column-academic"] },
+                "tone": { "enum": ["technical", "narrative", "balanced"] },
+                "citation_density": { "enum": ["low", "medium", "high"] }
+              }
+            },
+            "literature": {
+              "type": "object",
+              "properties": {
+                "max_papers": { "type": "integer", "minimum": 5, "maximum": 200 },
+                "year_floor": { "type": "integer", "minimum": 1900, "maximum": 2100 },
+                "fallback_year_floor": { "type": "integer", "minimum": 1900, "maximum": 2100 },
+                "min_unique_threshold": { "type": "integer", "minimum": 1 },
+                "metadata_validation": { "enum": ["strict", "off"] },
+                "openalex_rate_limit_per_second": { "type": "number", "minimum": 0.1, "maximum": 10 },
+                "sources": {
+                  "type": "object",
+                  "additionalProperties": { "type": "boolean" }
+                }
+              }
+            },
+            "credentials": {
+              "type": "object",
+              "properties": {
+                "openalex_email": { "type": "string" },
+                "semantic_scholar_key": { "type": "string" }
+              }
+            },
+            "storage": {
+              "type": "object",
+              "properties": {
+                "knowledge_root": { "type": "string" },
+                "default_output_root": { "type": "string" },
+                "retain_completed_jobs_days": { "type": "integer", "minimum": 1 }
+              }
+            },
+            "experiment": {
+              "type": "object",
+              "properties": {
+                "timeout_seconds": { "type": "integer", "minimum": 30, "maximum": 3600 },
+                "venv_per_job": { "type": "boolean" },
+                "max_dependency_install_attempts": { "type": "integer", "minimum": 1, "maximum": 5 }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
