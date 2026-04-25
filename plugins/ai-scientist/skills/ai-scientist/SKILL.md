@@ -42,8 +42,14 @@ Required inputs are listed in `routing-intents.md`. If missing, ask once via `As
 2. Generate job ID: 8-char random hex.
 3. Create output dir: `<output-dir>/`.
 4. Write `config.json` (job_id, topic, domain, codebase_path, created_at, preferred_libraries, experiment_type, evaluation_metric, python_version, pip_path, venv_path).
-5. **Recall prior knowledge**: call `mcp__ai-scientist__search_knowledge_index(query=topic, limit=20)`, then `get_knowledge_details(ids=[...])` for top hits. Also `get_meta_analysis()` and `get_what_works()`. Report counts and reusable queries to user.
-6. **Create venv**: `cd <output-dir> && python -m venv .venv && .venv\Scripts\activate && pip install --upgrade pip`. (Unix: `.venv/bin/activate`.)
+5. **Recall ai-scientist knowledge** (cross-job): call `mcp__ai-scientist__search_knowledge_index(query=topic, limit=20)`, then `get_knowledge_details(ids=[...])` for top hits. Also `get_meta_analysis()` and `get_what_works()`. Report counts and reusable queries to user.
+6. **Initialize per-job MemPalace** (per-project memory DB):
+   - Path: `~/.ai-scientist/palace/<job_id>/`
+   - Init via MCP: `mcp__mempalace__init(root="<palace_path>")` (or shell: `mempalace init <palace_path>`)
+   - Set the `MEMPALACE_ROOT` env var for this session to the per-job path so all subagents and hooks scope writes/reads to it.
+   - **Wake-up recall**: call `mcp__mempalace__wake_up(token_budget=4000)` to load any prior context for this topic from earlier sessions on this job.
+   - The plugin's hooks (`hooks/hooks.json`) will auto-save before context compaction (PreCompact) and on Stop. No manual save calls needed during normal flow.
+7. **Create venv**: `cd <output-dir> && python -m venv .venv && .venv\Scripts\activate && pip install --upgrade pip`. (Unix: `.venv/bin/activate`.)
 
 ## Phase 0.5: Ideation
 
@@ -198,6 +204,12 @@ Direct MCP calls (no agent dispatch):
 - Add knowledge graph triples to `~/.ai-scientist/knowledge/triples.jsonl` (job_id, predicate, object).
 - Append trajectory record to `~/.ai-scientist/trajectories.jsonl`.
 - Update `~/.ai-scientist/jobs.json` with job completion status.
+
+**Persist to MemPalace** (per-job DB at `~/.ai-scientist/palace/<job_id>/`):
+
+- `mcp__mempalace__mine(content=<job summary>, root="<palace_path>", tags=["ai-scientist", "job:<job_id>", "domain:<domain>", "phase:complete"])` — mine the full job context (idea, hypothesis, key results, manuscript abstract, review verdict) into the palace.
+- The PreCompact hook (`hooks/mempalace-save.sh precompact`) handles intermediate saves automatically; this Phase-9 mine is the final, comprehensive save.
+- Subagent diaries (per-agent MemPalace entries written by each phase agent during its turn) are auto-collected into the same per-job palace by the agents' own internal tool calls.
 
 ## Phase 10: Meta-analysis
 

@@ -60,7 +60,23 @@ if (-not (Test-Path $aiHome)) {
 Write-Host "Installing MCP requirements..." -ForegroundColor Cyan
 & python -m pip install --user -r "$PluginRoot\mcp\requirements.txt"
 
-# 7a. Install third-party literature MCP servers
+# 7a-bis. Install MemPalace (per-project memory DB MCP)
+Write-Host "Installing MemPalace MCP server..." -ForegroundColor Cyan
+& python -m pip install --user mempalace 2>&1 | Select-Object -Last 2
+$mempalacePath = "$env:USERPROFILE\.ai-scientist\palace"
+if (-not (Test-Path $mempalacePath)) {
+    New-Item -ItemType Directory -Path $mempalacePath -Force | Out-Null
+}
+$mempalaceCmd = Get-Command mempalace -ErrorAction SilentlyContinue
+if ($mempalaceCmd) {
+    Write-Host "  mempalace: $($mempalaceCmd.Source)"
+    & mempalace init "$mempalacePath" 2>&1 | Out-Null
+    Write-Host "  Per-project palace root: $mempalacePath"
+} else {
+    Write-Warning "  mempalace command not on PATH after install. Re-open shell and re-run, or set %PATH% manually."
+}
+
+# 7b. Install third-party literature MCP servers
 Write-Host "Installing third-party literature MCP servers..." -ForegroundColor Cyan
 
 # OpenAlex (drAbreu/alex-mcp) — installed on demand by uvx; just probe uvx.

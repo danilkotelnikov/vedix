@@ -70,43 +70,39 @@ multi_agent = true
 
 This unlocks `spawn_agent`, `wait`, and `close_agent` — required for the orchestrator to dispatch the 12 phase agents in parallel.
 
-## 5. Register the three MCP servers
+## 5. Register the bundled MCP servers (8 total)
 
-Append to `~/.codex/config.toml`. (Substitute your email and Semantic Scholar key. The `${env:VAR}` syntax is Codex-native.)
+Append to `~/.codex/config.toml`. The full block is at `<plugin>/plugins/ai-scientist/codex-config.toml.example` — copy-paste ready. Servers registered:
 
-```toml
-# AI-Scientist core MCP — knowledge store, codebase analyzer, meta-analysis
-[mcp_servers.ai-scientist]
-command = "python"
-args = [
-  "${env:USERPROFILE}/.codex/ai-scientist-plugin/plugins/ai-scientist/mcp/server.py",
-  "--mode",
-  "stdio",
-]
-env = { AI_SCIENTIST_HOME = "${env:USERPROFILE}/.ai-scientist", PYTHONPATH = "${env:USERPROFILE}/.codex/ai-scientist-plugin/plugins/ai-scientist/mcp/lib" }
+| Server | Purpose |
+|---|---|
+| `ai-scientist` | Plugin's core MCP — knowledge store, codebase analyzer, meta-analysis |
+| `mempalace` | Per-project memory DB; auto-saves before context compaction |
+| `openalex` | drAbreu/alex-mcp v4.1.0 — 240M+ scholarly works |
+| `semanticscholar` | JackKuo666/semanticscholar-MCP-Server — Semantic Scholar full API |
+| `arxiv` | arxiv-mcp-server — preprints (CS/physics/math/bio) |
+| `biorxiv` | bioRxiv MCP — life-sciences preprints |
+| `pubmed` | pubmed-mcp — biomedical literature |
+| `annas-mcp` | Anna's Archive — full-text article access |
+| `fetcher` | Generic HTTP-fetch fallback (Consensus, Crossref, etc.) |
 
-# OpenAlex MCP — drAbreu/alex-mcp v4.1.0
-[mcp_servers.openalex]
-command = "uvx"
-args = [
-  "--from",
-  "git+https://github.com/drAbreu/alex-mcp.git@4.1.0",
-  "alex-mcp",
-]
-env = { OPENALEX_MAILTO = "${env:OPENALEX_EMAIL}", OPENALEX_RATE_PER_SEC = "10" }
+(Substitute your email and Semantic Scholar key. The `${env:VAR}` syntax is Codex-native.)
 
-# Semantic Scholar MCP — JackKuo666/semanticscholar-MCP-Server (cloned to ~/.ai-scientist/external/)
-[mcp_servers.semanticscholar]
-command = "python"
-args = [
-  "${env:USERPROFILE}/.ai-scientist/external/semanticscholar-MCP-Server/semantic_scholar_server.py",
-]
-env = { SEMANTIC_SCHOLAR_API_KEY = "${env:SEMANTIC_SCHOLAR_KEY}" }
+**Easiest:**
+
+```bash
+# Linux / macOS
+cat ~/.codex/ai-scientist-plugin/plugins/ai-scientist/codex-config.toml.example >> ~/.codex/config.toml
 ```
 
-On Linux/macOS replace `${env:USERPROFILE}` with `${env:HOME}`.
+```powershell
+# Windows
+Get-Content "$env:USERPROFILE\.codex\ai-scientist-plugin\plugins\ai-scientist\codex-config.toml.example" | Add-Content "$env:USERPROFILE\.codex\config.toml"
+```
 
-The full snippet is also at `<plugin>/plugins/ai-scientist/codex-config.toml.example` — copy-paste ready.
+(On Linux/macOS edit the example first to replace `${env:USERPROFILE}` with `${env:HOME}` before appending.)
+
+The example file declares **`[features] multi_agent = true`** and all 9 MCP-server blocks. Open it before appending to skim what gets registered.
 
 ## 6. Run the install script
 

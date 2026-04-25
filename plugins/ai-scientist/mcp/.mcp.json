@@ -12,6 +12,13 @@
         "PYTHONPATH": "${CLAUDE_PLUGIN_ROOT}/mcp/lib"
       }
     },
+    "mempalace": {
+      "command": "mempalace-mcp",
+      "args": [],
+      "env": {
+        "MEMPALACE_ROOT": "${env:USERPROFILE}/.ai-scientist/palace"
+      }
+    },
     "openalex": {
       "command": "uvx",
       "args": [
@@ -32,6 +39,39 @@
       "env": {
         "SEMANTIC_SCHOLAR_API_KEY": "${env:SEMANTIC_SCHOLAR_KEY}"
       }
+    },
+    "arxiv": {
+      "command": "uvx",
+      "args": [
+        "arxiv-mcp-server"
+      ]
+    },
+    "pubmed": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "pubmed-mcp"
+      ]
+    },
+    "annas-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "annas-mcp",
+        "mcp"
+      ],
+      "env": {
+        "ANNAS_BASE_URL": "${env:ANNAS_BASE_URL}",
+        "ANNAS_DOWNLOAD_PATH": "${env:ANNAS_DOWNLOAD_PATH}",
+        "ANNAS_SECRET_KEY": "${env:ANNAS_SECRET_KEY}"
+      }
+    },
+    "fetcher": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "fetcher-mcp"
+      ]
     }
   }
 }

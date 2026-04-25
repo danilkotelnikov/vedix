@@ -6,7 +6,9 @@
 [features]
 multi_agent = true
 
+# ============================================================================
 # AI-Scientist core MCP — knowledge store, codebase analyzer, meta-analysis
+# ============================================================================
 [mcp_servers.ai-scientist]
 command = "python"
 args = [
@@ -16,7 +18,18 @@ args = [
 ]
 env = { AI_SCIENTIST_HOME = "${env:USERPROFILE}/.ai-scientist", PYTHONPATH = "${env:USERPROFILE}/.codex/ai-scientist-plugin/plugins/ai-scientist/mcp/lib" }
 
-# OpenAlex — drAbreu/alex-mcp v4.1.0 (literature search via OpenAlex's 240M+ works index)
+# ============================================================================
+# MemPalace — per-project memory DB with auto-save before context compaction
+# ============================================================================
+[mcp_servers.mempalace]
+command = "mempalace-mcp"
+env = { MEMPALACE_ROOT = "${env:USERPROFILE}/.ai-scientist/palace" }
+
+# ============================================================================
+# Literature DB MCPs — all 6 enabled for Codex
+# ============================================================================
+
+# OpenAlex (drAbreu/alex-mcp v4.1.0) — 240M+ scholarly works
 [mcp_servers.openalex]
 command = "uvx"
 args = [
@@ -26,10 +39,42 @@ args = [
 ]
 env = { OPENALEX_MAILTO = "${env:OPENALEX_EMAIL}", OPENALEX_RATE_PER_SEC = "10" }
 
-# Semantic Scholar — JackKuo666/semanticscholar-MCP-Server (cloned at install time)
+# Semantic Scholar (JackKuo666/semanticscholar-MCP-Server, cloned at install time)
 [mcp_servers.semanticscholar]
 command = "python"
 args = [
   "${env:USERPROFILE}/.ai-scientist/external/semanticscholar-MCP-Server/semantic_scholar_server.py",
 ]
 env = { SEMANTIC_SCHOLAR_API_KEY = "${env:SEMANTIC_SCHOLAR_KEY}" }
+
+# arXiv — preprint search via arxiv-mcp-server (uvx-installed)
+[mcp_servers.arxiv]
+command = "uvx"
+args = ["arxiv-mcp-server"]
+
+# bioRxiv / medRxiv — life-sciences preprints (cloned at install time;
+# see .codex/INSTALL.md for the bioRxiv MCP install)
+[mcp_servers.biorxiv]
+command = "python"
+args = [
+  "${env:USERPROFILE}/.ai-scientist/external/biorxiv-mcp/server.py",
+]
+
+# PubMed — biomedical literature
+[mcp_servers.pubmed]
+command = "npx"
+args = ["-y", "pubmed-mcp"]
+
+# Anna's Archive — full-text article access (npx-installed)
+[mcp_servers.annas-mcp]
+command = "npx"
+args = ["-y", "annas-mcp", "mcp"]
+env = { ANNAS_BASE_URL = "${env:ANNAS_BASE_URL}", ANNAS_DOWNLOAD_PATH = "${env:ANNAS_DOWNLOAD_PATH}", ANNAS_SECRET_KEY = "${env:ANNAS_SECRET_KEY}" }
+
+# Consensus — AI-curated academic search.
+# Consensus does not currently ship an open MCP server. The literature-searcher
+# falls back to https://consensus.app/papers/?q=<query> via the fetcher MCP.
+# If a Consensus MCP becomes available, replace the fetcher fallback below.
+[mcp_servers.fetcher]
+command = "npx"
+args = ["-y", "fetcher-mcp"]

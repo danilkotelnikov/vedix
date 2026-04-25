@@ -92,9 +92,21 @@ See `settings/settings.schema.json` for the full schema.
 
 - **12 subagents** (`agents/`): each pinned to opus or sonnet with its own thinking budget
 - **Orchestrator skill** (`skills/ai-scientist/SKILL.md`): owns file I/O + Phase −1 intent routing + dispatch
-- **MCP server** (`mcp/server.py`): job registry, knowledge store (SQLite + ChromaDB), meta-analysis
+- **9 MCP servers** auto-registered on install (Claude Code via `mcp/.mcp.json`, Codex via `codex-config.toml.example`):
+  - `ai-scientist` — plugin's core (knowledge store, codebase analyzer, meta-analysis)
+  - `mempalace` — per-project memory DB with auto-save before context compaction
+  - `openalex` (drAbreu/alex-mcp), `semanticscholar`, `arxiv`, `biorxiv`, `pubmed`, `annas-mcp`, `fetcher`
 - **Templates**: 5 LaTeX, 3 Word; visual validation pass on rendered PNGs
-- **Runtime data**: `~/.ai-scientist/` (knowledge.db, jobs.json, trajectories.jsonl) — preserved across plugin reinstalls
+- **Runtime data** at `~/.ai-scientist/`:
+  - `knowledge.db` (cross-job SQLite + ChromaDB), `jobs.json`, `trajectories.jsonl` — preserved across plugin reinstalls
+  - `palace/<job_id>/` — per-project MemPalace DB, scoped to one research job; auto-recalled at session start, auto-saved on PreCompact and Stop
+
+## Memory model
+
+- **Cross-job knowledge** (`~/.ai-scientist/knowledge.db`): paper list, hypotheses, benchmark outcomes, claims, knowledge graph triples. Recalled at Phase 0; written at Phase 9.
+- **Per-project palace** (`~/.ai-scientist/palace/<job_id>/`): wings (people/projects) → rooms (topics) → drawers (content). Auto-saved before any context compaction so even multi-day jobs don't lose state. Each agent maintains its own diary in this palace.
+- **Session-start recall**: the `SessionStart` hook (`hooks/mempalace-recall.sh`) calls `mempalace wake-up` scoped to the active job's palace and emits a token-budgeted context summary.
+- **PreCompact save**: the `PreCompact` hook (`hooks/mempalace-save.sh precompact`) mines the in-flight conversation into the per-job palace before Claude Code / Codex compacts the context.
 
 ## Spec & plan
 
