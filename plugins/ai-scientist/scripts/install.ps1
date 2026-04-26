@@ -88,24 +88,42 @@ if (-not $uvx) {
     Write-Host "  uvx: $($uvx.Source) — alex-mcp will be auto-installed on first MCP start"
 }
 
-# Semantic Scholar (JackKuo666/semanticscholar-MCP-Server) — clone + pip-install deps
-$ssExternal = "$aiHome\external\semanticscholar-MCP-Server"
+# Clone helper
+function Install-GitMcp {
+    param([string]$RepoUrl, [string]$DirName, [string]$EntryFile)
+    $target = "$aiHome\external\$DirName"
+    if (-not (Test-Path $target)) {
+        Write-Host "  Cloning $RepoUrl..."
+        & git clone --depth=1 $RepoUrl $target 2>&1 | Out-Null
+    } else {
+        Write-Host "  $DirName already cloned at $target"
+    }
+    if (-not (Test-Path "$target\$EntryFile")) {
+        Write-Warning "  $DirName clone failed or missing entry $EntryFile; re-run install.ps1 or clone manually."
+        return
+    }
+    if (Test-Path "$target\requirements.txt") {
+        & python -m pip install --user -q -r "$target\requirements.txt" 2>&1 | Out-Null
+    }
+    Write-Host "  $DirName deps installed"
+}
+
+# Ensure ~/.ai-scientist/external/ exists
 if (-not (Test-Path "$aiHome\external")) {
     New-Item -ItemType Directory -Path "$aiHome\external" | Out-Null
 }
-if (-not (Test-Path $ssExternal)) {
-    Write-Host "  Cloning JackKuo666/semanticscholar-MCP-Server..."
-    & git clone --depth=1 "https://github.com/JackKuo666/semanticscholar-MCP-Server.git" $ssExternal 2>&1 | Out-Null
-    if (-not (Test-Path "$ssExternal\semantic_scholar_server.py")) {
-        Write-Warning "  semanticscholar MCP clone failed; the source will be unavailable until you re-run install.ps1 or clone manually."
-    } else {
-        & python -m pip install --user -r "$ssExternal\requirements.txt" 2>&1 | Select-Object -Last 2
-        Write-Host "  semanticscholar MCP cloned + deps installed"
-    }
-} else {
-    Write-Host "  semanticscholar MCP already cloned at $ssExternal"
-    & python -m pip install --user -q -r "$ssExternal\requirements.txt" 2>&1 | Out-Null
-}
+
+# Semantic Scholar MCP
+Install-GitMcp `
+    -RepoUrl "https://github.com/JackKuo666/semanticscholar-MCP-Server.git" `
+    -DirName "semanticscholar-MCP-Server" `
+    -EntryFile "semantic_scholar_server.py"
+
+# bioRxiv MCP
+Install-GitMcp `
+    -RepoUrl "https://github.com/JackKuo666/bioRxiv-MCP-Server.git" `
+    -DirName "bioRxiv-MCP-Server" `
+    -EntryFile "biorxiv_server.py"
 
 # Reminder about required env vars for the literature MCPs
 if (-not $env:OPENALEX_EMAIL) {

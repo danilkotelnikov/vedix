@@ -46,6 +46,12 @@
         "arxiv-mcp-server"
       ]
     },
+    "biorxiv": {
+      "command": "python",
+      "args": [
+        "${env:USERPROFILE}/.ai-scientist/external/bioRxiv-MCP-Server/biorxiv_server.py"
+      ]
+    },
     "pubmed": {
       "command": "npx",
       "args": [

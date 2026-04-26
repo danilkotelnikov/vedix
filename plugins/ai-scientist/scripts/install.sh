@@ -52,16 +52,34 @@ else
     echo "  uvx: $(command -v uvx)"
 fi
 
-# 7d. Clone Semantic Scholar MCP
-SS_DIR="$AI_HOME/external/semanticscholar-MCP-Server"
+# 7d. Clone the cloned-MCPs (Semantic Scholar, bioRxiv)
 mkdir -p "$AI_HOME/external"
-if [ ! -d "$SS_DIR" ]; then
-    git clone --depth=1 https://github.com/JackKuo666/semanticscholar-MCP-Server.git "$SS_DIR" 2>&1 | tail -2
-fi
-if [ -f "$SS_DIR/requirements.txt" ]; then
-    python3 -m pip install --user -q -r "$SS_DIR/requirements.txt"
-    echo "  Semantic Scholar MCP cloned + deps installed: $SS_DIR"
-fi
+
+install_git_mcp() {
+    local url="$1"
+    local dirname="$2"
+    local entry="$3"
+    local target="$AI_HOME/external/$dirname"
+    if [ ! -d "$target" ]; then
+        echo "  Cloning $url..."
+        git clone --depth=1 "$url" "$target" 2>&1 | tail -2
+    else
+        echo "  $dirname already cloned at $target"
+    fi
+    if [ ! -f "$target/$entry" ]; then
+        echo "  WARNING: $dirname clone failed (missing $entry)"
+        return
+    fi
+    if [ -f "$target/requirements.txt" ]; then
+        python3 -m pip install --user -q -r "$target/requirements.txt"
+        echo "  $dirname deps installed"
+    fi
+}
+
+install_git_mcp "https://github.com/JackKuo666/semanticscholar-MCP-Server.git" \
+    "semanticscholar-MCP-Server" "semantic_scholar_server.py"
+install_git_mcp "https://github.com/JackKuo666/bioRxiv-MCP-Server.git" \
+    "bioRxiv-MCP-Server" "biorxiv_server.py"
 
 # 7e. Env-var reminders
 [ -z "${OPENALEX_EMAIL:-}" ] && echo "  WARNING: OPENALEX_EMAIL unset. Polite-pool throttle (1 req/s) will apply."

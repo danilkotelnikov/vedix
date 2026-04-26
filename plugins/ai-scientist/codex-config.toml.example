@@ -52,12 +52,11 @@ env = { SEMANTIC_SCHOLAR_API_KEY = "${env:SEMANTIC_SCHOLAR_KEY}" }
 command = "uvx"
 args = ["arxiv-mcp-server"]
 
-# bioRxiv / medRxiv — life-sciences preprints (cloned at install time;
-# see .codex/INSTALL.md for the bioRxiv MCP install)
+# bioRxiv / medRxiv — JackKuo666/bioRxiv-MCP-Server (cloned at install time)
 [mcp_servers.biorxiv]
 command = "python"
 args = [
-  "${env:USERPROFILE}/.ai-scientist/external/biorxiv-mcp/server.py",
+  "${env:USERPROFILE}/.ai-scientist/external/bioRxiv-MCP-Server/biorxiv_server.py",
 ]
 
 # PubMed — biomedical literature
