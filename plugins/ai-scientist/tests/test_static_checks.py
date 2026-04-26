@@ -13,6 +13,8 @@ EXPECTED_AGENTS = {
     "hypothesizer", "code-generator", "experiment-runner",
     "plotter", "manuscript-writer", "citator", "reviewer",
     "meta-analyst", "fixer",
+    "vlm-reviewer",        # Tier B
+    "tree-search-runner",  # Tier C
 }
 
 REQUIRED_FRONTMATTER_KEYS = {"name", "description", "model", "thinking", "tools"}
@@ -71,7 +73,7 @@ def test_agent_tools_list(agent_name):
 
 # Codex-compatibility checks: each agent must declare codex.model + reasoning_effort.
 # Heavy roles (5 GPT-5.5 xhigh) must use 1.05M context + 128k output.
-HEAVY_AGENTS = {"ideator", "hypothesizer", "code-generator", "manuscript-writer", "reviewer"}
+HEAVY_AGENTS = {"ideator", "hypothesizer", "code-generator", "manuscript-writer", "reviewer", "vlm-reviewer", "tree-search-runner"}
 LIGHT_AGENTS = EXPECTED_AGENTS - HEAVY_AGENTS
 ALLOWED_CODEX_MODELS = {"gpt-5.5", "gpt-5.4", "gpt-5.3", "inherit"}
 ALLOWED_REASONING_EFFORTS = {"low", "medium", "high", "xhigh"}
@@ -90,7 +92,14 @@ def test_agent_has_codex_block(agent_name):
         f"{agent_name}.md: codex.max_output_tokens must be int"
 
 
-@pytest.mark.parametrize("agent_name", sorted(HEAVY_AGENTS))
+# The 5 "core heavy" agents must all use the maximum tier; the Tier B/C
+# specialized heavies (vlm-reviewer, tree-search-runner) get heavy models
+# but smaller output caps because their outputs are structured (JSON, not
+# long-form prose).
+CORE_HEAVY_AGENTS = {"ideator", "hypothesizer", "code-generator", "manuscript-writer", "reviewer"}
+
+
+@pytest.mark.parametrize("agent_name", sorted(CORE_HEAVY_AGENTS))
 def test_heavy_agent_max_context_and_output(agent_name):
     fm = parse_frontmatter(AGENTS_DIR / f"{agent_name}.md")
     codex = fm["codex"]
@@ -159,6 +168,8 @@ def test_heavy_agent_uses_gemini3_pro_high(agent_name):
         f"{agent_name}.md: heavy agent must use gemini-3.1-pro-preview"
     assert gem.get("thinking_level") == "high", \
         f"{agent_name}.md: heavy agent must use thinking_level=high"
+    # Tier B/C heavies (vlm-reviewer, tree-search-runner) get 2M context too
+    # but may have different output caps because their outputs are structured.
     assert gem["context_window"] == 2000000, \
         f"{agent_name}.md: heavy agent must use context_window=2000000"
 

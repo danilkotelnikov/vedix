@@ -170,6 +170,9 @@ Write to `<output-dir>/experiment.py` and `<output-dir>/requirements.txt`. Strip
 
 ## Phase 4: Experiment
 
+Two dispatch routes, picked by settings + flags:
+
+**Route A — single-shot + auto-fix (default):**
 Dispatch `Task(subagent_type="ai-scientist-experiment-runner", ...)`. Inline:
 - Path to output dir (it has Bash; will install deps and run inside venv)
 - Auto-fix budget (default 3 rounds, from `experiment.auto_fix_max_rounds`)
@@ -178,6 +181,13 @@ Dispatch `Task(subagent_type="ai-scientist-experiment-runner", ...)`. Inline:
 Expect: structured run report (exit codes, stdout/stderr summary, fix log, paths to results.csv/.npy/figures).
 
 [ON ERROR: if final_exit_code != 0, trigger Fixer flow per Phase F.]
+
+**Route B — BFTS tree search (canonical Sakana v2):**
+Active when `--bfts` flag passed OR `experiment.use_bfts: true` in settings. Dispatch `Task(subagent_type="ai-scientist-tree-search-runner", ...)`. The agent wraps `<plugin>/mcp/lib/v2/treesearch/perform_experiments_bfts_with_agentmanager.py` and explores N variants of the experiment in parallel, picking the best by metric. 5-20× slower than Route A but materially better when the right implementation is uncertain.
+
+Time-budget gating: BFTS defaults to 30 min wall-clock cap. Override via `--bfts-time-budget <minutes>`.
+
+After completion, BFTS promotes its winning variant to the canonical job paths (replaces seed `experiment.py`, `results.csv`, `figures/`, `data_main.npy`). Phases 5.5+ then proceed normally.
 
 ## Phase 5.5: Plot aggregation
 
@@ -231,12 +241,20 @@ If `pdflatex` is not available, skip and note: "LaTeX compilation skipped — in
 3. If not: invoke `Skill(skill="anthropic-skills:docx", ...)` with section content from manuscript_writer's section subagent outputs.
 4. If both fail: skip with logged warning. User can run `/ai-scientist-resume <job-id>` after manual install.
 
-## Phase 8.5: Visual validation
+## Phase 8.5: Visual validation (VLM Reviewer)
 
+Two dispatch routes:
+
+**Route A — md_agent (default for partial intents):**
 1. Render LaTeX PDF to PNGs: `pdftoppm -r 150 manuscript.pdf manuscript_page`.
 2. Render Word DOCX → PDF → PNGs: `libreoffice --headless --convert-to pdf manuscript.docx && pdftoppm -r 150 manuscript.pdf word_page`.
-3. Re-dispatch Reviewer in visual mode with PNG paths inlined. Reviewer's Read is multimodal — it sees the rendered pages.
-4. Write `visual_review.json`. High-severity issues route through the Fixer flow. Low-severity issues logged in the run summary.
+3. Dispatch `Task(subagent_type="ai-scientist-vlm-reviewer", ...)` with `route=md_agent` and PNG paths inlined. Agent's Read is multimodal — it sees the rendered pages directly.
+4. Write `visual_review.json`. High-severity issues route through the Fixer flow.
+
+**Route B — v2_script (canonical Sakana v2 reference benchmark):**
+Active when `--use-v2-scripts` flag is passed OR doing a v2-comparison run. Dispatch the same agent with `route=v2_script`. The agent invokes `<plugin>/mcp/lib/v2/perform_vlm_review.py` directly via Bash. Produces canonical-v2-schema `visual_review.json` (per-figure scores, duplicate detection, caption-content alignment).
+
+Both routes scope all writes to `<output_dir>/.palace/` (per-project memory).
 
 ## Phase 9: Knowledge indexing
 
