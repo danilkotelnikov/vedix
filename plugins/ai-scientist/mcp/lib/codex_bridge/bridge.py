@@ -35,8 +35,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 # --- Defaults (overridable via settings or constructor kwargs) ---------------
-DEFAULT_MODEL = "gpt-5.4-mini"
-DEFAULT_EFFORT = "high"
+# gpt-5.5 + xhigh reasoning matches the Opus-tier role pinning used elsewhere
+# in this plugin (ideator, hypothesizer, code-generator, manuscript-writer,
+# reviewer all run at this tier). Cross-validation deserves comparable
+# reasoning depth on the Codex side. The default-settings.json may downgrade
+# this for cost-conscious users via codex_bridge.default_model.
+DEFAULT_MODEL = "gpt-5.5"
+DEFAULT_EFFORT = "xhigh"
 DEFAULT_TIMEOUT_SECONDS = 600
 POLL_INTERVAL_SECONDS = 5
 MAX_RETRIES = 2

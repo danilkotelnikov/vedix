@@ -61,8 +61,8 @@ def _make_bridge(args: argparse.Namespace) -> CodexBridge:
     try:
         return CodexBridge(
             plugin_root=args.codex_plugin_root or os.environ.get("CODEX_PLUGIN_CC_ROOT"),
-            default_model=args.model or "gpt-5.4-mini",
-            default_effort=args.effort or "high",
+            default_model=args.model or "gpt-5.5",
+            default_effort=args.effort or "xhigh",
             default_timeout_seconds=args.timeout or 600,
             require_claude_code=not args.allow_any_host,
         )

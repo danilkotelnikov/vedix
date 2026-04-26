@@ -118,8 +118,8 @@
       "codex_bridge": {
         "enabled": true,
         "host_required": "claude_code",
-        "default_model": "gpt-5.4-mini",
-        "default_effort": "high",
+        "default_model": "gpt-5.5",
+        "default_effort": "xhigh",
         "default_timeout_seconds": 600,
         "background_for_long_tasks": true,
         "poll_interval_seconds": 5,
