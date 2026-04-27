@@ -44,6 +44,19 @@
         "fixer":               { "model": "gemini-3-flash-preview",   "thinking_budget": 16384,       "max_output_tokens": 16384, "context_window": 1000000 }
       },
       "interactivity": "checkpoints",
+      "orchestrator": {
+        "use_python_pipeline": true,
+        "default_max_reflection_rounds": 5,
+        "ideation_num_candidates": 3,
+        "review_ensemble_size": 3,
+        "review_bias_prompts": ["positive", "negative", "neutral"],
+        "stage_gate_enabled": true,
+        "stage_gate_block_on_failure": true,
+        "checkpoint_after_each_phase": true,
+        "max_figures": 12,
+        "citation_validation": "bidirectional_with_crossref",
+        "citation_anti_hallucination_llm_judge": true
+      },
       "auto_fix_max_rounds": 3,
       "fixer_max_rounds_per_phase": 3,
       "phases": {

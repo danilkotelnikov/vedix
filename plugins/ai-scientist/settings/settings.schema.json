@@ -69,6 +69,25 @@
               }
             },
             "interactivity": { "enum": ["none", "checkpoints", "full"] },
+            "orchestrator": {
+              "type": "object",
+              "properties": {
+                "use_python_pipeline": { "type": "boolean" },
+                "default_max_reflection_rounds": { "type": "integer", "minimum": 0, "maximum": 20 },
+                "ideation_num_candidates": { "type": "integer", "minimum": 1, "maximum": 20 },
+                "review_ensemble_size": { "type": "integer", "minimum": 1, "maximum": 10 },
+                "review_bias_prompts": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "stage_gate_enabled": { "type": "boolean" },
+                "stage_gate_block_on_failure": { "type": "boolean" },
+                "checkpoint_after_each_phase": { "type": "boolean" },
+                "max_figures": { "type": "integer", "minimum": 1, "maximum": 50 },
+                "citation_validation": { "enum": ["off", "unidirectional", "bidirectional_with_crossref"] },
+                "citation_anti_hallucination_llm_judge": { "type": "boolean" }
+              }
+            },
             "auto_fix_max_rounds": { "type": "integer", "minimum": 0, "maximum": 10 },
             "fixer_max_rounds_per_phase": { "type": "integer", "minimum": 0, "maximum": 10 },
             "phases": {
