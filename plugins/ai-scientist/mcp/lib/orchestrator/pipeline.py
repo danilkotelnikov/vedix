@@ -406,6 +406,47 @@ class Pipeline:
         if self.checkpoints: self.checkpoints.save("phase_8_5", result)
         return result
 
+    # --- Phase 9: Index -------------------------------------------------
+    def phase_9_index(self, *, papers: list, idea: dict, hypothesis: dict, review: dict) -> None:
+        if self.project_palace is not None:
+            try:
+                self.project_palace.write_diary(
+                    agent="indexer",
+                    content=f"Job {self.state.job_id} indexed: {len(papers)} papers, "
+                            f"hypothesis={hypothesis.get('hypothesis','')[:100]}, "
+                            f"review_overall={review.get('median_overall','?')}",
+                    tags=["phase-9-index"],
+                )
+            except Exception:
+                pass
+
+    # --- Phase 10: Meta-analysis ----------------------------------------
+    def phase_10_meta(self) -> dict:
+        response = self.dispatcher(agent_name="meta-analyst", inputs={
+            "trajectories_jsonl": "", "jobs_json": "",
+        })
+        try:
+            result = extract_json(response.get("raw", ""))
+        except Exception:
+            result = {}
+        if self.project_palace is not None and "findings_update" in result:
+            for section, content in result["findings_update"].items():
+                try:
+                    self.project_palace.write_findings(section=section, content=content)
+                except Exception:
+                    pass
+        return result
+
+    # --- Phase 11: Slides -----------------------------------------------
+    def phase_11_slides(self) -> Optional[Path]:
+        response = self.dispatcher(agent_name="slide-presenter", inputs={
+            "manuscript_pdf": str(self.state.output_dir / "manuscript.pdf"),
+            "manuscript_tex": str(self.state.output_dir / "manuscript.tex"),
+            "figures_dir": str(self.state.output_dir / "figures"),
+        })
+        pdf = self.state.output_dir / "manuscript-slides.pdf"
+        return pdf if pdf.is_file() else None
+
     def _wrap_evaluator(self, parsed: dict) -> EvaluatorVerdict:
         try:
             v = self.evaluator(parsed)
