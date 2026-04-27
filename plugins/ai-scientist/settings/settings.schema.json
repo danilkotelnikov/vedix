@@ -162,6 +162,27 @@
                 "bfts_config_path": { "type": "string" }
               }
             },
+            "superpowers": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "auto_mine_plans": { "type": "boolean" },
+                "plugin_palace_root": { "type": "string" },
+                "auto_recall_on_session_start": { "type": "boolean" },
+                "wake_up_token_budget": { "type": "integer", "minimum": 0, "maximum": 32000 },
+                "diary_writes_per_step": { "type": "boolean" }
+              }
+            },
+            "ai_research_skills_vendored": {
+              "type": "object",
+              "properties": {
+                "research_state_view": { "type": "boolean" },
+                "findings_drawer": { "type": "boolean" },
+                "citation_discipline": { "type": "boolean" },
+                "slide_presenter_enabled": { "type": "boolean" },
+                "gemini_diagram_styles": { "enum": ["off", "mermaid", "graphviz", "plantuml"] }
+              }
+            },
             "codex_bridge": {
               "type": "object",
               "properties": {

@@ -128,6 +128,21 @@
         "bfts_time_budget_minutes": 30,
         "bfts_config_path": "${plugin_root}/mcp/lib/sakana/bfts_config.yaml"
       },
+      "superpowers": {
+        "enabled": true,
+        "auto_mine_plans": true,
+        "plugin_palace_root": "~/.ai-scientist/plugin-palace",
+        "auto_recall_on_session_start": true,
+        "wake_up_token_budget": 2000,
+        "diary_writes_per_step": true
+      },
+      "ai_research_skills_vendored": {
+        "research_state_view": true,
+        "findings_drawer": true,
+        "citation_discipline": true,
+        "slide_presenter_enabled": true,
+        "gemini_diagram_styles": "off"
+      },
       "codex_bridge": {
         "enabled": true,
         "host_required": "claude_code",
