@@ -16,6 +16,7 @@ EXPECTED_AGENTS = {
     "vlm-reviewer",                 # Tier B
     "tree-search-runner",           # Tier C
     "codex-cross-validator",        # Codex bridge (CC-exclusive)
+    "slide-presenter",              # Phase E §8.4
 }
 
 REQUIRED_FRONTMATTER_KEYS = {"name", "description", "model", "thinking", "tools"}
