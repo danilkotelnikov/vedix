@@ -71,3 +71,24 @@ Cross-job learning extraction.
 }
 </output>
 ```
+
+## Findings drawer contract
+
+After generating meta-analysis, return a `findings_update` field in your
+JSON output:
+
+```json
+{
+  "meta_analysis_json": {...},
+  "findings_update": {
+    "current_understanding": "What we know so far in this project",
+    "patterns_and_insights": "Recurring patterns across runs",
+    "lessons_and_constraints": "What broke and what we won't try again",
+    "open_questions": "Unresolved questions",
+    "last_direction_decision": "DEEPEN | BROADEN | PIVOT | CONCLUDE — and why"
+  }
+}
+```
+
+The pipeline writes each section into the per-project palace under
+room `research-findings`.
