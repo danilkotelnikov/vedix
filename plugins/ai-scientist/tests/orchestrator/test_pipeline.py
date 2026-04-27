@@ -37,3 +37,11 @@ def test_phase_0_5_ideation_produces_3_candidates(tmp_path):
     candidates = pipeline.phase_0_5_ideation(topic="t", domain="statistical", num_candidates=3)
     assert len(candidates) == 3
     assert (tmp_path / "idea_candidates.json").is_file()
+
+
+def test_phase_1_dedups_papers(tmp_path):
+    fake_dispatcher = MagicMock(return_value={"raw": '[{"title":"A","doi":"10.1/x"},{"title":"A","doi":"10.1/x"}]'})
+    pipeline = Pipeline(dispatcher=fake_dispatcher, evaluator=MagicMock(), host="claude_code")
+    pipeline.phase_0_init(topic="t", domain="statistical", output_dir=tmp_path)
+    papers = pipeline.phase_1_literature(idea={"Title": "ridge"}, sources=["openalex"])
+    assert len(papers) == 1

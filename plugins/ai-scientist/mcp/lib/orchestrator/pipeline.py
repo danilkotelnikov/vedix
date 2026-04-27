@@ -109,6 +109,75 @@ class Pipeline:
             self.checkpoints.save("phase_0_5", {"candidates": candidates})
         return candidates
 
+    # --- Phase 0.75: Codebase scanner ----------------------------------
+    def phase_0_75_codebase(self, *, codebase_path: Optional[Path]) -> dict:
+        if not codebase_path:
+            return {}
+        response = self.dispatcher(agent_name="codebase-scanner", inputs={"codebase_path": str(codebase_path)})
+        parsed = extract_json(response.get("raw", "")) if isinstance(response, dict) else {}
+        out = self.state.output_dir / "codebase_analysis.json"
+        out.write_text(json.dumps(parsed, indent=2), encoding="utf-8")
+        if self.checkpoints: self.checkpoints.save("phase_0_75", parsed)
+        return parsed
+
+    # --- Phase 1: Literature search -------------------------------------
+    def phase_1_literature(self, *, idea: dict, sources: Optional[list] = None) -> List[dict]:
+        sources = sources or ["openalex", "arxiv", "pubmed", "biorxiv", "semanticscholar", "annas-mcp"]
+        queries = self._build_queries(idea, n=8)
+        all_papers: List[dict] = []
+        for source in sources:
+            response = self.dispatcher(
+                agent_name="literature-searcher",
+                inputs={"source": source, "queries": queries, "max_per_source": 8, "time_budget_seconds": 60},
+            )
+            raw = response.get("raw", "") if isinstance(response, dict) else ""
+            try:
+                papers = self._parse_paper_list(raw)
+                if isinstance(papers, list):
+                    all_papers.extend(papers)
+            except Exception:
+                continue
+        deduped = self._dedup_papers(all_papers)
+        (self.state.output_dir / "paper_list.json").write_text(
+            json.dumps(deduped, indent=2), encoding="utf-8"
+        )
+        if self.checkpoints: self.checkpoints.save("phase_1", {"papers": deduped})
+        return deduped
+
+    @staticmethod
+    def _parse_paper_list(raw: str) -> list:
+        """Parse a JSON array from raw text; supports ```json fence or bare array."""
+        import re
+        m = re.search(r"```json\s*\n?(.*?)\n?```", raw, re.DOTALL)
+        candidate = m.group(1) if m else raw
+        parsed = json.loads(candidate.strip())
+        if isinstance(parsed, dict) and "papers" in parsed:
+            return parsed["papers"]
+        return parsed if isinstance(parsed, list) else []
+
+    @staticmethod
+    def _build_queries(idea: dict, n: int = 8) -> list:
+        core = idea.get("Title", "")[:150]
+        return [
+            core, f"{core} computational design", f"{core} deep learning",
+            f"{core} structure prediction", f"{core} machine learning",
+            f"{core} review 2025", f"{core} benchmark dataset", f"{core} therapeutic applications",
+        ][:n]
+
+    @staticmethod
+    def _dedup_papers(papers: list) -> list:
+        seen_doi, seen_title = set(), set()
+        out = []
+        for p in papers:
+            doi = (p.get("doi") or "").lower()
+            title_norm = (p.get("title") or "").lower().strip()[:80]
+            if doi and doi in seen_doi: continue
+            if title_norm and title_norm in seen_title: continue
+            if doi: seen_doi.add(doi)
+            if title_norm: seen_title.add(title_norm)
+            out.append(p)
+        return out
+
     def _wrap_evaluator(self, parsed: dict) -> EvaluatorVerdict:
         try:
             v = self.evaluator(parsed)
