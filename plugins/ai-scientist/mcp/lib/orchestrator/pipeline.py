@@ -9,6 +9,7 @@ methods; the run_full_pipeline() top-level orchestrator lands in Task 26.
 """
 from __future__ import annotations
 import json
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, List, Optional
@@ -227,6 +228,29 @@ class Pipeline:
         if m and ("==" in m.group(1) or ">=" in m.group(1) or m.group(1).strip().startswith(("numpy", "scipy", "torch"))):
             return m.group(1).strip()
         return "numpy>=1.26\nscikit-learn>=1.3\nmatplotlib>=3.7\n"
+
+    # --- Phase 4: Experiment --------------------------------------------
+    def phase_4_experiment(self, *, code_artifacts: dict, use_bfts: bool = False, timeout_seconds: int = 300) -> dict:
+        if use_bfts:
+            return self._phase_4b_bfts(timeout_seconds=timeout_seconds * 6)
+        return self._phase_4a_single_shot(timeout_seconds=timeout_seconds)
+
+    def _phase_4a_single_shot(self, *, timeout_seconds: int) -> dict:
+        inputs = {"output_dir": str(self.state.output_dir),
+                  "auto_fix_max_rounds": 3, "timeout_seconds": timeout_seconds}
+        response = self.dispatcher(agent_name="experiment-runner", inputs=inputs)
+        parsed = extract_json(response.get("raw", "")) if isinstance(response, dict) else {}
+        if self.checkpoints: self.checkpoints.save("phase_4a", parsed)
+        return parsed
+
+    def _phase_4b_bfts(self, *, timeout_seconds: int) -> dict:
+        inputs = {"output_dir": str(self.state.output_dir),
+                  "bfts_config_path": "${plugin_root}/mcp/lib/sakana/bfts_config.yaml",
+                  "time_budget_minutes": timeout_seconds // 60}
+        response = self.dispatcher(agent_name="tree-search-runner", inputs=inputs)
+        parsed = extract_json(response.get("raw", "")) if isinstance(response, dict) else {}
+        if self.checkpoints: self.checkpoints.save("phase_4b", parsed)
+        return parsed
 
     def _wrap_evaluator(self, parsed: dict) -> EvaluatorVerdict:
         try:

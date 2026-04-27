@@ -54,3 +54,12 @@ def test_phase_3_codegen_writes_files(tmp_path):
     result = pipeline.phase_3_codegen(hypothesis={"hypothesis": "h"}, max_rounds=1)
     assert (tmp_path / "experiment.py").is_file()
     assert (tmp_path / "requirements.txt").is_file()
+
+
+def test_phase_4_routes_to_bfts_when_use_bfts(tmp_path):
+    fake_dispatcher = MagicMock(return_value={"raw": '{"final_exit_code":0,"results_csv_present":true,"npy_files":[],"figures":[],"fix_attempts":0,"stdout_summary":"","stderr_summary":""}'})
+    pipeline = Pipeline(dispatcher=fake_dispatcher, evaluator=MagicMock(), host="claude_code")
+    pipeline.phase_0_init(topic="t", domain="statistical", output_dir=tmp_path)
+    pipeline.phase_4_experiment(code_artifacts={}, use_bfts=True)
+    call = fake_dispatcher.call_args.kwargs
+    assert call["agent_name"] == "tree-search-runner"
