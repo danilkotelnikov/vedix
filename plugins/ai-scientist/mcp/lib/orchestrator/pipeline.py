@@ -27,6 +27,14 @@ from .ensemble import BiasedReviewers
 
 
 @dataclass
+class GateRequest:
+    """Returned to the SKILL.md when a phase needs user input."""
+    gate_id: int
+    question: str
+    options: list
+
+
+@dataclass
 class PipelineState:
     job_id: str = ""
     topic: str = ""
@@ -457,3 +465,78 @@ class Pipeline:
             return EvaluatorVerdict(verdict="PASS", reason="")
         except Exception:
             return EvaluatorVerdict(verdict="PASS", reason="evaluator-skipped")
+
+    # --- Gate helper --------------------------------------------------------
+    def _gate_or_default(
+        self,
+        *,
+        gate_id: int,
+        default,
+        question: str,
+        options: list,
+        callback: Optional[Callable],
+        interactivity: str,
+        critical: bool = False,
+    ):
+        if interactivity == "none":
+            return default
+        if interactivity == "checkpoints" and not critical:
+            return default
+        if callback is None:
+            return default
+        try:
+            return callback(GateRequest(gate_id=gate_id, question=question, options=options))
+        except Exception:
+            return default
+
+    # --- Top-level pipeline -------------------------------------------------
+    def run_full_pipeline(
+        self,
+        *,
+        topic: str,
+        domain: str,
+        output_dir: Path,
+        interactivity: str = "checkpoints",
+        use_bfts: bool = False,
+        codebase_path: Optional[Path] = None,
+        user_input_callback: Optional[Callable] = None,
+    ) -> dict:
+        """The end-to-end pipeline. SKILL.md surfaces gates via user_input_callback.
+
+        Returns a dict summary of all artifacts + token usage.
+        """
+        self.phase_0_init(topic=topic, domain=domain, output_dir=output_dir)
+        if codebase_path:
+            self.phase_0_75_codebase(codebase_path=codebase_path)
+        candidates = self.phase_0_5_ideation(topic=topic, domain=domain, num_candidates=3)
+        idea = self._gate_or_default(
+            gate_id=2, default=candidates[0], question="Pick an idea",
+            options=[c.get("Name", f"#{i}") for i, c in enumerate(candidates)],
+            callback=user_input_callback, interactivity=interactivity,
+            critical=True,
+        )
+        if isinstance(idea, str):
+            idea = next((c for c in candidates if c.get("Name") == idea), candidates[0])
+        (self.state.output_dir / "idea.json").write_text(json.dumps(idea, indent=2), encoding="utf-8")
+        papers = self.phase_1_literature(idea=idea)
+        hypothesis = self.phase_2_hypothesis(idea=idea, papers=papers)
+        code_artifacts = self.phase_3_codegen(hypothesis=hypothesis)
+        results = self.phase_4_experiment(code_artifacts=code_artifacts, use_bfts=use_bfts)
+        self.phase_5_5_plotting()
+        manuscript_tex = self.phase_5_manuscript(
+            papers=papers, hypothesis=hypothesis, results=results,
+        )
+        self.phase_6_citations()
+        review = self.phase_7_review(manuscript_tex=manuscript_tex)
+        self.phase_8_compile()
+        self.phase_8_25_word()
+        self.phase_8_5_vlm()
+        self.phase_9_index(papers=papers, idea=idea, hypothesis=hypothesis, review=review)
+        self.phase_10_meta()
+        self.phase_11_slides()
+        return {
+            "job_id": self.state.job_id,
+            "tokens": self.tokens.report(),
+            "review": review,
+            "output_dir": str(self.state.output_dir),
+        }
