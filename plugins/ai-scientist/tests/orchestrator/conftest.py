@@ -12,6 +12,8 @@ sys.modules before any test module is imported.
 import sys
 import types
 import pathlib
+import tempfile
+import pytest
 
 # Resolve the plugin root from this conftest's own __file__.  Python resolves
 # __file__ correctly even when the path contains non-ASCII (Cyrillic) chars.
@@ -32,3 +34,15 @@ if not _current_mcp_path or _LOCAL_MCP not in _current_mcp_path:
     _mcp_mod.__path__ = [_LOCAL_MCP]
     _mcp_mod.__package__ = "mcp"
     sys.modules["mcp"] = _mcp_mod
+
+
+# ---------------------------------------------------------------------------
+# tmp_path override: pytest resolves its temp base from the rootdir, which
+# contains Cyrillic characters on this machine and causes a PermissionError
+# on Windows.  Override to use the system temp dir (always ASCII-safe).
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def tmp_path(tmp_path_factory):
+    """Return a per-test temp directory rooted in the system temp folder."""
+    with tempfile.TemporaryDirectory() as td:
+        yield pathlib.Path(td)
