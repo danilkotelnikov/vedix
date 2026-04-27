@@ -45,7 +45,12 @@ def retry_with_backoff(
                     )
                     time.sleep(delay)
                     delay *= factor
-            assert last_exc is not None
+            if last_exc is None:
+                # max_time was exhausted before the first attempt completed.
+                raise TimeoutError(
+                    f"retry_with_backoff: {fn.__name__} exceeded max_time={max_time}s "
+                    f"before any attempt completed"
+                )
             raise last_exc
         return wrapper
     return decorator
