@@ -84,3 +84,133 @@ EXPERIMENT_RESULT_SCHEMA = {
         "stderr_summary":      {"type": "string"},
     },
 }
+
+SOURCE_USAGE_SCHEMA = {
+    "type": "object",
+    "required": ["configured_sources", "per_source"],
+    "properties": {
+        "configured_sources": {"type": "array", "items": {"type": "string"}},
+        "per_source": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "required": ["configured", "tool_discovered", "attempted",
+                             "successful_calls", "failed_calls",
+                             "selected_records", "status"],
+                "properties": {
+                    "configured": {"type": "boolean"},
+                    "tool_discovered": {"type": "boolean"},
+                    "attempted": {"type": "integer", "minimum": 0},
+                    "successful_calls": {"type": "integer", "minimum": 0},
+                    "failed_calls": {"type": "integer", "minimum": 0},
+                    "selected_records": {"type": "integer", "minimum": 0},
+                    "status": {"type": "string",
+                               "enum": ["ok", "degraded", "skipped",
+                                        "rate_limited", "error"]},
+                    "skipped_reason": {"type": ["string", "null"]},
+                },
+            },
+        },
+    },
+}
+
+REFERENCES_VALIDATION_SCHEMA = {
+    "type": "object",
+    "required": ["total_papers", "doi_gate_passed", "dropped", "validated"],
+    "properties": {
+        "total_papers": {"type": "integer", "minimum": 0},
+        "doi_gate_passed": {"type": "integer", "minimum": 0},
+        "dropped": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["key", "reason"],
+                "properties": {
+                    "key": {"type": "string"},
+                    "reason": {"type": "string"},
+                },
+            },
+        },
+        "validated": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["key", "doi", "title_score", "status"],
+                "properties": {
+                    "key": {"type": "string"},
+                    "doi": {"type": "string"},
+                    "title_score": {"type": "number", "minimum": 0,
+                                    "maximum": 1},
+                    "year_match": {"type": "string",
+                                   "enum": ["pass", "warning", "fail",
+                                            "unknown"]},
+                    "first_author_match": {"type": "string",
+                                           "enum": ["pass", "warning",
+                                                    "fail", "unknown"]},
+                    "venue_match": {"type": "string",
+                                    "enum": ["pass", "warning", "fail",
+                                             "unknown"]},
+                    "source_checked": {"type": "array",
+                                       "items": {"type": "string"}},
+                    "status": {"type": "string",
+                               "enum": ["validated", "unverified",
+                                        "human_review_needed"]},
+                },
+            },
+        },
+    },
+}
+
+REVIEWER_DISPATCH_SCHEMA = {
+    "type": "object",
+    "required": ["mode", "reviewers"],
+    "properties": {
+        "mode": {"type": "string",
+                 "enum": ["native_subagents", "inline_fallback"]},
+        "max_threads": {"type": "integer", "minimum": 1},
+        "reviewers": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["role", "status"],
+                "properties": {
+                    "role": {"type": "string"},
+                    "agent_id": {"type": ["string", "null"]},
+                    "agent_type": {"type": ["string", "null"]},
+                    "model": {"type": ["string", "null"]},
+                    "status": {"type": "string",
+                               "enum": ["completed", "failed", "timeout",
+                                        "inline"]},
+                },
+            },
+        },
+        "fallback_reason": {"type": ["string", "null"]},
+    },
+}
+
+RESOURCE_USAGE_SCHEMA = {
+    "type": "object",
+    "required": ["external_requests", "subagents_spawned", "budget_status"],
+    "properties": {
+        "external_requests": {"type": "integer", "minimum": 0},
+        "rate_limit_429_count": {"type": "integer", "minimum": 0},
+        "subagents_spawned": {"type": "integer", "minimum": 0},
+        "subagents_closed": {"type": "integer", "minimum": 0},
+        "compile_attempts": {"type": "integer", "minimum": 0},
+        "long_running_calls": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["name", "duration_seconds"],
+                "properties": {
+                    "name": {"type": "string"},
+                    "duration_seconds": {"type": "number", "minimum": 0},
+                },
+            },
+        },
+        "budget_policy": {"type": "string",
+                          "enum": ["gentle", "normal", "aggressive"]},
+        "budget_status": {"type": "string",
+                          "enum": ["under", "warning", "exceeded"]},
+    },
+}
