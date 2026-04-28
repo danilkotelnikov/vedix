@@ -154,3 +154,26 @@ The orchestrator merges across all per-source returns — better to return 5 pap
 ```
 
 If the source fails, has no API key, or returns no results, return an empty `paper_list_json` and document why in `status.skipped_reason` or `status.errors`. Never block the pipeline.
+
+## Per-record DOI requirement (v2.1+)
+
+The cross-validator drops any returned paper without a DOI before it enters `paper_list.json`. To minimize wasted work, structure your output so every paper record contains:
+
+```json
+{
+  "title": "...",
+  "authors": [...],
+  "year": 2024,
+  "venue": "...",
+  "doi": "10.xxxx/yyyy",
+  "source": "openalex|pubmed|biorxiv|semanticscholar|annas-mcp",
+  "url": "https://...",
+  "abstract": "...",
+  "is_open_access": true,
+  "oa_url": "https://..."
+}
+```
+
+If a source returns a record without a DOI, attempt one fallback enrichment (OpenAlex search by title + first-author) before adding to the result list. If still no DOI, omit the record rather than passing a DOI-less placeholder downstream.
+
+For OpenAlex specifically: as of February 13, 2026, the API requires a key for >100 credits/day. Set `OPENALEX_EMAIL` env var; the email is also used as the polite-pool identifier for Crossref.

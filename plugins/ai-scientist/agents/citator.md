@@ -86,3 +86,14 @@ Key format: `{LastName}{Year}_{index}` where index avoids collisions with existi
    downstream consistency check can flag them.
 3. **Bidirectional check before exit**: every `\cite{key}` resolves;
    every `.bib` entry is cited at least once (or drop it).
+
+## Hard rule: DOI is mandatory for every citation (v2.1+)
+
+Per `cross_validator.py` Stage 1, the orchestrator drops any reference without a verifiable DOI before drafting. Your job during enrichment:
+
+1. For every BibTeX entry that is missing a `doi = {...}` field, run an OpenAlex / Semantic Scholar / Crossref search by title + first-author + year.
+2. If a DOI is found, add `doi = {10.xxxx/yyyy}` and `url = {https://doi.org/10.xxxx/yyyy}`.
+3. If no DOI can be located after these checks, **drop the citation** rather than keeping a DOI-less entry — the validator will drop it anyway, and you save a round-trip.
+4. Never invent a DOI. The cross-validator runs Crossref `/works/{doi}` and will catch fake DOIs immediately.
+
+Required minimum BibTeX fields for Q1/Q2 publication: `author`, `title`, `journal`, `year`, `volume`, `pages`, `doi`. Strongly recommend `issn`, `publisher`, `month`.

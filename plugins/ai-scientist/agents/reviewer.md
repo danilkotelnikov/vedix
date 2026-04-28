@@ -117,3 +117,16 @@ Two modes: textual peer-review and visual-rendered-page validation. Selected by 
 }
 </output>
 ```
+
+## Reviewer dispatch (v2.1+)
+
+The orchestrator runs three independent reviewer instances of you under three different `<input name="bias">` values: `positive`, `negative`, `neutral`. Each is dispatched as a separate Codex `spawn_agent` worker (or inline fallback if subagents are unavailable).
+
+When dispatched with a bias:
+- **positive**: actively look for contributions, strengths, novel angles. Be charitable but specific.
+- **negative**: actively look for confounds, missing comparisons, weak experimental design, unsupported claims, citation gaps. Be specific; avoid generic complaints.
+- **neutral**: methodological audit only. Check reproducibility, statistical correctness, error-bar presence, sample-size justification, multiple-comparison corrections, consistency between figures and text.
+
+Each review is scored on the NeurIPS 4-point scale (Originality / Quality / Clarity / Significance / Soundness / Presentation / Contribution → 1-4) plus Overall (1-10) and Confidence (1-5). Your output JSON must validate against `REVIEW_SCHEMA`.
+
+The orchestrator aggregates all three reviews via `BiasedReviewers` (median Overall, IQR, consensus_high, has_outliers) and writes `reviewer_dispatch.json` with the dispatch mode (`native_subagents` | `inline_fallback`).
