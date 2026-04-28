@@ -327,6 +327,63 @@ class Pipeline:
     def _summarize_data() -> str:
         return "results.csv (long-format) + .npy data files"
 
+    # --- Phase 5R: Review-article manuscript --------------------------------
+    def phase_5r_manuscript_review_article(self, *, papers: list,
+                                           hypothesis: dict,
+                                           max_rounds: int = 3) -> str:
+        """Phase 5R: review-article manuscript with anti-LLMish + claim-audit loop."""
+        history = []
+        tex = ""
+        manuscript_path = self.state.output_dir / "manuscript.tex"
+        for round_n in range(max_rounds):
+            inputs = {
+                "paper_list_compact": json.dumps(papers[:30]),
+                "hypothesis_summary": hypothesis.get("hypothesis", "")[:400],
+                "synthesis_mode": "review_article",
+                "prior_attempts": history,
+            }
+            response = self.dispatcher(agent_name="manuscript-writer",
+                                       inputs=inputs)
+            raw = response.get("raw", "") if isinstance(response, dict) else ""
+            try:
+                tex = extract_latex(raw)
+            except Exception as e:
+                history.append({"round": round_n, "error": str(e)})
+                continue
+            manuscript_path.write_text(tex, encoding="utf-8")
+
+            # Anti-LLMish lint + claim audit
+            lint = lint_text(tex)
+            claims = audit_claims(tex)
+            (self.state.output_dir / "anti_llm_lint.json").write_text(
+                json.dumps(lint, indent=2), encoding="utf-8")
+            (self.state.output_dir / "claim_audit.json").write_text(
+                json.dumps(claims, indent=2), encoding="utf-8")
+
+            tier1_hits = [h for h in lint["hits"] if h.get("tier") == 1]
+            tier3_hits = [h for h in lint["hits"] if h.get("tier") == 3]
+            clarif = claims.get("clarification_requests", [])
+
+            if not tier1_hits and not tier3_hits and not clarif:
+                break  # Clean draft
+
+            history.append({
+                "round": round_n,
+                "tier1_blocks": [h["term"] for h in tier1_hits[:10]],
+                "tier3_blocks": [h["match"][:60] for h in tier3_hits[:10]],
+                "clarification_requests": clarif[:5],
+                "instruction": (
+                    "Rewrite avoiding the listed Tier-1 words and Tier-3 phrases; "
+                    "for each clarification_request, replace the vague claim with "
+                    "a specific quantification or appropriate hedge."
+                ),
+            })
+
+        if self.checkpoints:
+            self.checkpoints.save("phase_5r",
+                                  {"manuscript_path": str(manuscript_path)})
+        return tex
+
     # --- Phase 6: Citations ---------------------------------------------
     def phase_6_citations(self) -> dict:
         tex_path = self.state.output_dir / "manuscript.tex"
