@@ -709,6 +709,90 @@ class Pipeline:
             self.checkpoints.save("phase_1_5", report)
         return report
 
+    # --- Top-level review-article pipeline ---------------------------------
+    def run_review_article_pipeline(
+        self, *, topic: str, domain: str, output_dir: Path,
+        crossref_email: str,
+        openalex_email: Optional[str] = None,
+        semantic_scholar_key: Optional[str] = None,
+        annas_enabled: bool = False, consensus_enabled: bool = False,
+        pubmed_enabled: bool = False,
+        explicit_article_type: str = "auto",
+        interactivity: str = "checkpoints",
+        user_input_callback: Optional[Callable] = None,
+        codex_native_dispatcher: Any = None,
+    ) -> dict:
+        """v2.1 review-article pipeline. Use article_type=review phase order."""
+        self.phase_0_init(topic=topic, domain=domain, output_dir=output_dir)
+        intent = self.phase_minus_1_intent(explicit=explicit_article_type)
+        if intent["article_type"] != "review":
+            # Caller is using the wrong entrypoint; honor intent and route.
+            return self.run_full_pipeline(
+                topic=topic, domain=domain, output_dir=output_dir,
+                interactivity=interactivity,
+                user_input_callback=user_input_callback)
+
+        candidates = self.phase_0_5_ideation(topic=topic, domain=domain,
+                                             num_candidates=3)
+        idea = self._gate_or_default(
+            gate_id=2, default=candidates[0], question="Pick a review thesis",
+            options=[c.get("Name", f"#{i}") for i, c in enumerate(candidates)],
+            callback=user_input_callback, interactivity=interactivity,
+            critical=True)
+        if isinstance(idea, str):
+            idea = next((c for c in candidates if c.get("Name") == idea),
+                        candidates[0])
+        (self.state.output_dir / "idea.json").write_text(
+            json.dumps(idea, indent=2), encoding="utf-8")
+
+        papers = self.phase_1_literature(idea=idea)
+        # Ensure paper_list.json exists for phase_1_5_metadata_validation
+        paper_list_path = self.state.output_dir / "paper_list.json"
+        if not paper_list_path.is_file():
+            paper_list_path.write_text(
+                json.dumps(papers, indent=2), encoding="utf-8")
+        self.phase_1_5_metadata_validation(
+            crossref_email=crossref_email,
+            openalex_email=openalex_email,
+            semantic_scholar_key=semantic_scholar_key,
+            annas_enabled=annas_enabled,
+            consensus_enabled=consensus_enabled,
+            pubmed_enabled=pubmed_enabled,
+        )
+        # Re-load validated subset
+        validated = json.loads(
+            (self.state.output_dir / "paper_list.validated.json")
+            .read_text(encoding="utf-8"))
+
+        hypothesis = self.phase_2_hypothesis(idea=idea, papers=validated)
+        manuscript_tex = self.phase_5r_manuscript_review_article(
+            papers=validated, hypothesis=hypothesis)
+        self.phase_6_citations()
+        review = self.phase_7r_review(manuscript_tex=manuscript_tex,
+                                      codex_native_dispatcher=codex_native_dispatcher)
+        # Ensure reviewer_dispatch.json exists (may be written by phase_7r_review)
+        rd_path = self.state.output_dir / "reviewer_dispatch.json"
+        if not rd_path.is_file():
+            rd_path.write_text(json.dumps({
+                "mode": "inline_fallback",
+                "reviewers": [],
+                "review": review,
+            }, indent=2), encoding="utf-8")
+        self.phase_8_compile()
+        self.phase_8_25_word()
+        self.phase_8_5_vlm()
+        self.phase_9_index(papers=validated, idea=idea, hypothesis=hypothesis,
+                           review=review)
+        self.phase_10_meta()
+        self.phase_11_slides()
+        return {
+            "job_id": self.state.job_id,
+            "article_type": "review",
+            "tokens": self.tokens.report(),
+            "review": review,
+            "output_dir": str(self.state.output_dir),
+        }
+
     def render_research_state_view(self) -> Path:
         """Render <output_dir>/research-state.yaml from current pipeline state."""
         try:
