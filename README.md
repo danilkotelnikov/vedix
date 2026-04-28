@@ -44,12 +44,31 @@ After install, the plugin appears in **Customize** with toggles for each agent's
 
 See `.codex/INSTALL.md` for the full 9-step setup. Summary:
 
+**Linux / macOS:**
+
 ```bash
 git clone https://github.com/danilkotelnikov/ai-scientist-plugin.git ~/.codex/ai-scientist-plugin
+mkdir -p ~/.agents/skills ~/.agents/agents
 ln -s ~/.codex/ai-scientist-plugin/plugins/ai-scientist/skills/ai-scientist ~/.agents/skills/ai-scientist
 ln -s ~/.codex/ai-scientist-plugin/plugins/ai-scientist/agents              ~/.agents/agents/ai-scientist
 cat ~/.codex/ai-scientist-plugin/plugins/ai-scientist/codex-config.toml.example >> ~/.codex/config.toml
+# Edit ~/.codex/config.toml to ensure your [features] table has multi_agent = true
+# (the example file no longer ships its own [features] block to avoid TOML duplicate-key errors)
 bash ~/.codex/ai-scientist-plugin/plugins/ai-scientist/scripts/install.sh
+codex restart
+```
+
+**Windows (PowerShell):**
+
+```powershell
+git clone https://github.com/danilkotelnikov/ai-scientist-plugin.git "$env:USERPROFILE\.codex\ai-scientist-plugin"
+New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.agents\skills","$env:USERPROFILE\.agents\agents" | Out-Null
+# Use junctions (no admin / Developer Mode required); replace 'ln -s' which doesn't exist on Windows
+cmd /c mklink /J "$env:USERPROFILE\.agents\skills\ai-scientist" "$env:USERPROFILE\.codex\ai-scientist-plugin\plugins\ai-scientist\skills\ai-scientist"
+cmd /c mklink /J "$env:USERPROFILE\.agents\agents\ai-scientist" "$env:USERPROFILE\.codex\ai-scientist-plugin\plugins\ai-scientist\agents"
+Get-Content "$env:USERPROFILE\.codex\ai-scientist-plugin\plugins\ai-scientist\codex-config.toml.example" | Add-Content "$env:USERPROFILE\.codex\config.toml"
+# Then open ~/.codex/config.toml and ensure the existing [features] table has multi_agent = true.
+& "$env:USERPROFILE\.codex\ai-scientist-plugin\plugins\ai-scientist\scripts\install.ps1"
 codex restart
 ```
 

@@ -72,7 +72,9 @@ This unlocks `spawn_agent`, `wait`, and `close_agent` — required for the orche
 
 ## 5. Register the bundled MCP servers (9 total)
 
-Append to `~/.codex/config.toml`. The full block is at `<plugin>/plugins/ai-scientist/codex-config.toml.example` — copy-paste ready. Servers registered:
+Append to `~/.codex/config.toml`. The full block is at `<plugin>/plugins/ai-scientist/codex-config.toml.example` -- copy-paste ready.
+
+> **Pre-flight on `[features]`:** the example file deliberately omits its own `[features]` table because TOML forbids two sections with the same name and most installs already have one. Step 4 above told you to ensure `multi_agent = true` lives under your existing `[features]` block. If you're appending to a config that lacks `[features]` entirely, add it yourself (anywhere in the file) with that single key. **If you previously appended an older copy of this example that included `[features]`, deduplicate it before running `codex restart`** -- otherwise Codex will refuse to load the file with a `duplicate key` error. Servers registered:
 
 | Server | Purpose |
 |---|---|

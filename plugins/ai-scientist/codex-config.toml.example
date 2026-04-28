@@ -2,12 +2,21 @@
 # ai-scientist plugin in Codex.
 #
 # On Linux/macOS, replace ${env:USERPROFILE} with ${env:HOME}.
-
-[features]
-multi_agent = true
+#
+# IMPORTANT: this file deliberately does NOT contain a [features] block.
+# Most Codex installs already have one, and TOML forbids two sections with
+# the same name. Before relying on this plugin, confirm your existing
+# [features] table in ~/.codex/config.toml contains:
+#
+#     multi_agent = true
+#
+# (it usually already does on recent Codex versions). If you have no
+# [features] section at all, add one anywhere in the file with that single
+# key. The ai-scientist orchestrator needs spawn_agent + wait + close_agent,
+# which `multi_agent = true` unlocks.
 
 # ============================================================================
-# AI-Scientist core MCP — knowledge store, codebase analyzer, meta-analysis
+# AI-Scientist core MCP -- knowledge store, codebase analyzer, meta-analysis
 # ============================================================================
 [mcp_servers.ai-scientist]
 command = "python"
