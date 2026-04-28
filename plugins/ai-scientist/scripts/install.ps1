@@ -3,6 +3,33 @@
 $ErrorActionPreference = "Stop"
 $PluginRoot = Split-Path -Parent $PSScriptRoot
 
+# --- Helper: invoke a native command (python/pip/git/etc.) without letting
+# its stderr writes become fatal under $ErrorActionPreference='Stop'.
+# Native tools routinely write progress / notices to stderr even on success
+# (e.g. pip's "[notice] A new release of pip is available"); under Stop mode
+# PowerShell wraps that stream in a NativeCommandError and aborts the script
+# even though the underlying exit code was 0. We locally relax the policy,
+# run the command, then fault only when the real exit code says we should.
+function Invoke-Native {
+    param(
+        [Parameter(Mandatory)][scriptblock]$Script,
+        [string]$Description = "command",
+        [switch]$IgnoreExitCode
+    )
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Script
+        $code = $LASTEXITCODE
+        if (-not $IgnoreExitCode -and $code -ne 0) {
+            throw "$Description failed (exit code $code)"
+        }
+        return $code
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
 Write-Host "AI-Scientist plugin install starting..." -ForegroundColor Cyan
 
 # 1. Probe Python
@@ -11,7 +38,7 @@ if (-not $python) {
     Write-Error "Python not found in PATH. Install Python 3.11+ and re-run."
     exit 1
 }
-$pyver = & python --version 2>&1
+$pyver = (& python --version 2>&1) -join " "
 Write-Host "  Python: $pyver"
 
 # 2. Probe Pandoc
@@ -59,11 +86,17 @@ if (-not (Test-Path $aiHome)) {
 
 # 7. Pip-install MCP dependencies (user-site)
 Write-Host "Installing MCP requirements..." -ForegroundColor Cyan
-& python -m pip install --user -r "$PluginRoot\mcp\requirements.txt"
+Invoke-Native -Description "pip install -r mcp/requirements.txt" -Script {
+    python -m pip install --user --quiet -r "$PluginRoot\mcp\requirements.txt"
+}
+Write-Host "  MCP requirements OK"
 
 # 7a-bis. Install MemPalace (per-project memory DB MCP)
 Write-Host "Installing MemPalace MCP server..." -ForegroundColor Cyan
-& python -m pip install --user mempalace 2>&1 | Select-Object -Last 2
+Invoke-Native -Description "pip install mempalace" -Script {
+    python -m pip install --user --quiet mempalace
+}
+Write-Host "  mempalace package OK"
 $mempalacePath = "$env:USERPROFILE\.ai-scientist\palace"
 if (-not (Test-Path $mempalacePath)) {
     New-Item -ItemType Directory -Path $mempalacePath -Force | Out-Null
@@ -71,7 +104,9 @@ if (-not (Test-Path $mempalacePath)) {
 $mempalaceCmd = Get-Command mempalace -ErrorAction SilentlyContinue
 if ($mempalaceCmd) {
     Write-Host "  mempalace: $($mempalaceCmd.Source)"
-    & mempalace init "$mempalacePath" 2>&1 | Out-Null
+    Invoke-Native -IgnoreExitCode -Description "mempalace init" -Script {
+        mempalace init "$mempalacePath" *>&1 | Out-Null
+    }
     Write-Host "  Per-project palace root: $mempalacePath"
 } else {
     Write-Warning "  mempalace command not on PATH after install. Re-open shell and re-run, or set %PATH% manually."
@@ -95,7 +130,9 @@ function Install-GitMcp {
     $target = "$aiHome\external\$DirName"
     if (-not (Test-Path $target)) {
         Write-Host "  Cloning $RepoUrl..."
-        & git clone --depth=1 $RepoUrl $target 2>&1 | Out-Null
+        Invoke-Native -Description "git clone $RepoUrl" -Script {
+            git clone --depth=1 $RepoUrl $target *>&1 | Out-Null
+        }
     } else {
         Write-Host "  $DirName already cloned at $target"
     }
@@ -104,7 +141,9 @@ function Install-GitMcp {
         return
     }
     if (Test-Path "$target\requirements.txt") {
-        & python -m pip install --user -q -r "$target\requirements.txt" 2>&1 | Out-Null
+        Invoke-Native -IgnoreExitCode -Description "pip install $DirName requirements" -Script {
+            python -m pip install --user --quiet -r "$target\requirements.txt" *>&1 | Out-Null
+        }
     }
     Write-Host "  $DirName deps installed"
 }
@@ -139,9 +178,19 @@ if (-not $env:SEMANTIC_SCHOLAR_KEY) {
 
 # 8. MCP self-test
 Write-Host "Running MCP self-test..." -ForegroundColor Cyan
-$selftest = & python "$PluginRoot\mcp\server.py" --selftest 2>&1
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "MCP selftest failed:`n$selftest"
+$selftest = $null
+try {
+    $previousEAP = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    $selftest = (& python "$PluginRoot\mcp\server.py" --selftest 2>&1) -join "`n"
+    $selftestCode = $LASTEXITCODE
+    $ErrorActionPreference = $previousEAP
+    if ($selftestCode -ne 0) {
+        Write-Error "MCP selftest failed (exit $selftestCode):`n$selftest"
+        exit 1
+    }
+} catch {
+    Write-Error "MCP selftest threw: $_`n$selftest"
     exit 1
 }
 Write-Host "  $selftest"
