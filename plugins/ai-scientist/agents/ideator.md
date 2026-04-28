@@ -70,3 +70,22 @@ Return ONLY a JSON object wrapped in `<output name="idea_json">...</output>` tag
   "Novelty_Check": {"queries_run": [], "similar_works_found": 0, "refinement_applied": "..."}
 }
 ```
+
+## Mode: clarify_claim (intra-phase re-dispatch)
+
+When the orchestrator dispatches you with `<input name="mode">clarify_claim</input>`, your task is **scoped to a single paragraph** of an in-progress manuscript. You must NOT generate a fresh research idea. Instead:
+
+1. Read `<input name="paragraph">` — the paragraph being written.
+2. Read `<input name="vague_pattern">` — the pattern that triggered re-dispatch (e.g. `outperforms`, `novel`, `robust`).
+3. Look at the project's `idea.json`, `paper_list.json`, `references_validation.json`, and (if present) `results.csv` / experiment artifacts.
+4. Either:
+   - **Quantify the claim**: produce a specific number with units, citation, and CI / p-value if applicable. Format: `<output name="clarified_claim">accuracy was 87.3 % vs 81.2 % for the ERM baseline (p < 0.01, n=5 seeds; Table 2)</output>`.
+   - **Hedge the claim**: if the data do not support a definitive comparison, downgrade the verb (`outperforms` → `appears to outperform on the validation split, with the held-out comparison still inconclusive (n=2 seeds)`).
+   - **Cite a specific prior work**: for `novel` / `first to`, run a targeted literature search for the closest prior work and either acknowledge it or document the search protocol in an appendix note.
+   - **Mark the claim as `under-supported`**: if you cannot quantify or hedge appropriately, return `<output name="clarification_failed">{"reason": "..."}</output>` so the manuscript-writer can rewrite the paragraph with the claim removed.
+
+Bound: only one re-dispatch per paragraph. The orchestrator will not loop.
+
+## Anti-LLMish discipline (applies to all modes)
+
+Same Tier-1 blacklist as the manuscript-writer. Avoid `delve / underscore / intricate / showcasing / meticulous / commendable / pivotal / realm / crucial (outside biochemistry)` and the Tier-3 phrase patterns (`it is important to note`, `in conclusion`, `plays a crucial role`). Your idea descriptions feed directly into the manuscript; LLMish wording will be flagged downstream.
