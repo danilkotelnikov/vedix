@@ -427,6 +427,63 @@ class Pipeline:
         if self.checkpoints: self.checkpoints.save("phase_7", review_data)
         return review_data
 
+    # --- Phase 7R: Review-article peer review ------------------------------
+    def phase_7r_review(self, *, manuscript_tex: str,
+                        codex_native_dispatcher=None) -> dict:
+        """Phase 7R: review-article peer review.
+
+        If codex_native_dispatcher is provided, fan out 3 biased reviewers via
+        spawn_agent waves. Otherwise inline fallback (sequential dispatcher calls).
+        """
+        biases = ["positive", "negative", "neutral"]
+        reviews = []
+        if codex_native_dispatcher is not None:
+            try:
+                payloads = codex_native_dispatcher.dispatch_wave(
+                    agent_name="reviewer",
+                    inputs_list=[{"manuscript": manuscript_tex,
+                                  "system_bias": b} for b in biases],
+                )
+                for b, p in zip(biases, payloads):
+                    reviews.append({"role": b, "agent_id": None,
+                                    "agent_type": "worker", "model": "gpt-5.5",
+                                    "status": "completed", "payload": p})
+                mode, fb_reason = "native_subagents", None
+            except Exception as e:
+                mode, fb_reason = "inline_fallback", f"native_dispatch_error: {e}"
+                reviews = []  # fall through to inline below
+        else:
+            mode, fb_reason = "inline_fallback", "codex_native_dispatcher not configured"
+
+        if not reviews:
+            # Inline fallback: sequential dispatcher.dispatch
+            for b in biases:
+                r = self.dispatcher(agent_name="reviewer",
+                                    inputs={"manuscript": manuscript_tex,
+                                            "system_bias": b})
+                reviews.append({"role": b, "agent_id": None, "agent_type": None,
+                                "model": None, "status": "inline", "payload": r})
+
+        # Aggregate
+        scores = [r["payload"].get("Overall", 5) for r in reviews]
+        review_doc = {
+            "median_overall": sorted(scores)[len(scores) // 2] if scores else None,
+            "individual_reviews": [r["payload"] for r in reviews],
+            "biases": biases,
+        }
+        (self.state.output_dir / "review.json").write_text(
+            json.dumps(review_doc, indent=2), encoding="utf-8")
+
+        # reviewer_dispatch.json
+        dispatch_doc = build_reviewer_dispatch(
+            reviews, mode=mode, max_threads=6, fallback_reason=fb_reason)
+        (self.state.output_dir / "reviewer_dispatch.json").write_text(
+            json.dumps(dispatch_doc, indent=2), encoding="utf-8")
+
+        if self.checkpoints:
+            self.checkpoints.save("phase_7r", review_doc)
+        return review_doc
+
     # --- Phase 8: Compile -----------------------------------------------
     def phase_8_compile(self) -> Optional[Path]:
         cwd = str(self.state.output_dir)
