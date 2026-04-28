@@ -28,13 +28,15 @@ Then run the install script (handles MemPalace pip install, clones the two clone
 
 ```powershell
 # Windows
-& "$env:USERPROFILE\.claude\plugins\cache\ai-scientist-plugin\ai-scientist\2.0.0\plugins\ai-scientist\scripts\install.ps1"
+& "$env:USERPROFILE\.claude\plugins\cache\ai-scientist-plugin\ai-scientist\2.0.0\scripts\install.ps1"
 ```
 
 ```bash
 # Linux / macOS
-bash ~/.claude/plugins/cache/ai-scientist-plugin/ai-scientist/2.0.0/plugins/ai-scientist/scripts/install.sh
+bash ~/.claude/plugins/cache/ai-scientist-plugin/ai-scientist/2.0.0/scripts/install.sh
 ```
+
+> **Note on the install path.** The marketplace caches only the contents of the plugin's `source` directory (`./plugins/ai-scientist/` per `.claude-plugin/marketplace.json`), so `scripts/install.ps1` lives directly under the version directory — *not* under a nested `plugins/ai-scientist/` subdirectory.
 
 After install, the plugin appears in **Customize** with toggles for each agent's model and the per-phase enable flags.
 

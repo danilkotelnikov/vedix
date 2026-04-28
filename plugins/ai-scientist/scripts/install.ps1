@@ -1,4 +1,5 @@
-# install.ps1 — one-time setup for ai-scientist plugin
+# install.ps1 -- one-time setup for ai-scientist plugin
+# Pure ASCII so non-UTF-8 Windows PowerShell sessions (e.g. cp1251) parse it correctly.
 $ErrorActionPreference = "Stop"
 $PluginRoot = Split-Path -Parent $PSScriptRoot
 
@@ -79,13 +80,13 @@ if ($mempalaceCmd) {
 # 7b. Install third-party literature MCP servers
 Write-Host "Installing third-party literature MCP servers..." -ForegroundColor Cyan
 
-# OpenAlex (drAbreu/alex-mcp) — installed on demand by uvx; just probe uvx.
+# OpenAlex (drAbreu/alex-mcp) -- installed on demand by uvx; just probe uvx.
 $uvx = Get-Command uvx -ErrorAction SilentlyContinue
 if (-not $uvx) {
     Write-Warning "  uvx not found. OpenAlex MCP requires uvx. Install:"
     Write-Warning "    pip install --user uv  # or  winget install astral-sh.uv"
 } else {
-    Write-Host "  uvx: $($uvx.Source) — alex-mcp will be auto-installed on first MCP start"
+    Write-Host "  uvx: $($uvx.Source) -- alex-mcp will be auto-installed on first MCP start"
 }
 
 # Clone helper
