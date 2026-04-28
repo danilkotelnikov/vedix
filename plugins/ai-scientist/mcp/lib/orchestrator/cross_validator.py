@@ -235,3 +235,28 @@ def stage2_enrich(paper: dict, *, openalex_email: str,
 
     enriched["missing_after_enrich"] = sorted(missing())
     return enriched
+
+
+def stage3_claim_support(paper: dict, *, claim: str,
+                         min_citations: int = 3) -> dict:
+    """Stage 3 — claim support spot-check for top-cited papers only.
+
+    Heuristic, not a full semantic search. Flags low matches for human review.
+    """
+    if paper.get("citation_count_in_ms", 0) < min_citations:
+        return {"checked": False, "reason": "below_threshold"}
+    try:
+        from rapidfuzz.fuzz import partial_ratio
+    except ImportError:
+        partial_ratio = lambda a, b: 100 if a.lower() in b.lower() else 0
+    tldr = paper.get("s2_tldr", "") or ""
+    if tldr:
+        score = partial_ratio(claim.lower(), tldr.lower())
+        return {"checked": True, "method": "s2_tldr",
+                "match_score": int(score), "flag": score < 40}
+    abstract = (paper.get("abstract") or "")[:500]
+    if abstract:
+        score = partial_ratio(claim.lower(), abstract.lower())
+        return {"checked": True, "method": "abstract_snippet",
+                "match_score": int(score), "flag": score < 35}
+    return {"checked": False, "reason": "no_summary_available"}
