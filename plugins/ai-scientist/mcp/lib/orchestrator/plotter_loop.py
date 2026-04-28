@@ -100,3 +100,63 @@ class PlotterLoop:
         (cycle_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2), encoding="utf-8")
         return manifest
+
+
+VLM_RUBRIC = [
+    {"id": "thumbnail_legibility",
+     "question": "Is the primary message legible at thumbnail size?"},
+    {"id": "color_blind_safe",
+     "question": "Is the color palette colorblind-safe (Okabe-Ito / Wong)?"},
+    {"id": "axes_labeled_with_units",
+     "question": "Are all axes labeled with units?"},
+    {"id": "error_bars_present",
+     "question": "Are error bars present and described in the caption?"},
+    {"id": "legend_placement",
+     "question": "Is the legend placement optimal (inside or direct labels)?"},
+    {"id": "font_size_legible",
+     "question": "Is the font size legible at journal column width?"},
+    {"id": "no_chartjunk",
+     "question": "Is the figure free of chartjunk (3D/gradients/shadows)?"},
+    {"id": "statistical_annotations",
+     "question": "Are statistical annotations (p-values, n, CI) complete?"},
+    {"id": "caption_claim_match",
+     "question": "Does the figure match the caption claim?"},
+    {"id": "data_ink_ratio",
+     "question": "Is the data-ink ratio maximized (no decorative ink)?"},
+]
+
+
+def cycle2_vlm_critique(self, *, vlm_callable) -> dict:
+    """Cycle 2: per-figure VLM critique on 10-item rubric.
+
+    vlm_callable signature: (figure_path, title, kind, rubric) -> {scores: {item_id: 1-4}, edits: [...]}.
+    """
+    src_dir = self.output_dir / "figures_draft1"
+    dst_dir = self.output_dir / "figures_draft2"
+    dst_dir.mkdir(parents=True, exist_ok=True)
+    manifest = json.loads(
+        (src_dir / "manifest.json").read_text(encoding="utf-8"))
+    figures = []
+    for fig in manifest["figures"]:
+        result = vlm_callable(
+            figure_path=str(self.output_dir / fig["draft_path"]),
+            title=fig.get("title", ""),
+            kind=fig.get("kind", ""),
+            rubric=VLM_RUBRIC,
+        )
+        scores = result.get("scores", {})
+        agg = sum(int(scores.get(item["id"], 0)) for item in VLM_RUBRIC)
+        figures.append({
+            "figure_id": fig["figure_id"],
+            "scores": scores,
+            "aggregate_score": agg,  # 0..40
+            "edits": result.get("edits", []),
+        })
+    rubric_doc = {"cycle": 2, "rubric": VLM_RUBRIC, "figures": figures}
+    (dst_dir / "vlm_rubric.json").write_text(
+        json.dumps(rubric_doc, indent=2), encoding="utf-8")
+    return rubric_doc
+
+
+# Patch into class
+PlotterLoop.cycle2_vlm_critique = cycle2_vlm_critique
