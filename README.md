@@ -15,28 +15,69 @@ End-to-end agentic research pipeline that runs across **Claude Code, Codex CLI, 
 - **Codex cross-validation (Claude Code-exclusive)** — every ideation / hypothesis / codegen / manuscript / review output is cross-checked against Codex via the [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) bridge. On disagreement, the user is prompted to adopt Codex's alternative, keep Claude's output, merge, or re-run. On Claude API errors / ToS refusals, the same task auto-falls-back to Codex. Anna's Archive searches are delegated to Codex by default.
 - **LLM-driven install prompts** — copy-paste prompts at `docs/AGENT_INSTALL_PROMPTS.md` that any agent can follow to install the plugin end-to-end on any host.
 
-## Install (one command)
+## Install (one command, interactive picker)
 
-The bootstrap auto-detects every agent host you have (Claude Code, Codex CLI, Gemini CLI), clones the canonical repo to `~/.ai-scientist/repo/`, installs Python deps + MemPalace, idempotently merges the Codex `config.toml`, runs the MCP self-test, and prints the two slash commands you need to paste into Claude Code. Re-running is safe — every step is idempotent.
+The bootstrap detects every agent host you have (Claude Code, Codex CLI, Gemini CLI), **asks you which to install into** (so you can skip Gemini if its extension install hangs, install only the host you actually use, etc.), clones the canonical repo to `~/.ai-scientist/repo/`, installs Python deps + MemPalace, idempotently merges the Codex `config.toml`, runs the MCP self-test, and prints the two slash commands you need to paste into Claude Code. Re-running is safe — every step is idempotent.
 
-**Windows (PowerShell):**
+**Windows (PowerShell — public repo):**
 
 ```powershell
 iwr -useb https://raw.githubusercontent.com/danilkotelnikov/ai-scientist-plugin/master/scripts/bootstrap.ps1 | iex
 ```
 
-**Linux / macOS:**
+**Windows (PowerShell — private repo, uses your `git` auth):**
+
+```powershell
+$r="$env:USERPROFILE\.ai-scientist\repo"; if(Test-Path "$r\.git"){ git -C $r pull --rebase }else{ git clone https://github.com/danilkotelnikov/ai-scientist-plugin.git $r }; & "$r\scripts\bootstrap.ps1"
+```
+
+**Linux / macOS (public repo):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/danilkotelnikov/ai-scientist-plugin/master/scripts/bootstrap.sh | bash
 ```
 
+**Linux / macOS (private repo):**
+
+```bash
+R="$HOME/.ai-scientist/repo"; { [ -d "$R/.git" ] && git -C "$R" pull --rebase || git clone https://github.com/danilkotelnikov/ai-scientist-plugin.git "$R"; } && bash "$R/scripts/bootstrap.sh"
+```
+
+You will see something like:
+
+```
+Detected agent CLI hosts on this machine:
+  [1] Claude Code (~/.claude/)
+  [2] Codex CLI    (~/.codex/)
+  [3] Gemini CLI   (~/.gemini/)
+
+Which hosts should I install ai-scientist into?
+  - Enter numbers separated by spaces or commas (e.g. '1 2', '1,3')
+  - 'all' or empty (Enter): every detected host
+  - 'none': skip all host registration (just install Python deps)
+
+  Your choice: _
+```
+
 The bootstrap then:
 
-- creates `~/.codex/ai-scientist-plugin` as a junction/symlink to the canonical repo if Codex is installed
+- creates `~/.codex/ai-scientist-plugin` as a junction/symlink to the canonical repo if Codex was selected
 - runs the merge helper (`scripts/_merge_codex_config.py`) which adds the 9 plugin MCP servers to `~/.codex/config.toml` between sentinel markers, never duplicates them, never breaks an existing `[features]` table, and never injects a UTF-8 BOM
-- runs `gemini extensions install` if Gemini CLI is detected
-- prints the two `/plugin marketplace add` + `/plugin install` slash commands if Claude Code is detected (slash commands cannot be issued from outside the agent session)
+- runs `gemini extensions install` **with a 90-second hard timeout** if Gemini was selected (the Gemini CLI extension install is known to hang occasionally; the timeout means the bootstrap always returns control to you)
+- prints the two `/plugin marketplace add` + `/plugin install` slash commands if Claude Code was selected (slash commands cannot be issued from outside the agent session)
+
+### Skip the prompt (scripted / re-runs)
+
+Pre-fill the answer via env var so the bootstrap never asks:
+
+```powershell
+$env:AISP_HOSTS = "claude,codex"   # or "all" / "none" / "claude" / "codex" / "gemini"
+iwr -useb https://raw.githubusercontent.com/danilkotelnikov/ai-scientist-plugin/master/scripts/bootstrap.ps1 | iex
+```
+
+```bash
+AISP_HOSTS=claude,codex bash <(curl -fsSL https://raw.githubusercontent.com/danilkotelnikov/ai-scientist-plugin/master/scripts/bootstrap.sh)
+```
 
 ## Update
 

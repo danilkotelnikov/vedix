@@ -1,10 +1,15 @@
 # scripts/bootstrap.ps1 -- one-command installer for ai-scientist plugin (v2.1+).
 #
-# Usage:
-#   iwr -useb https://raw.githubusercontent.com/danilkotelnikov/ai-scientist-plugin/master/scripts/bootstrap.ps1 | iex
+# Usage (interactive):
+#   $r="$env:USERPROFILE\.ai-scientist\repo"; if(Test-Path "$r\.git"){ git -C $r pull --rebase }else{ git clone https://github.com/danilkotelnikov/ai-scientist-plugin.git $r }; & "$r\scripts\bootstrap.ps1"
 #
-# Auto-detects Claude Code / Codex CLI / Gemini CLI in ~/.{claude,codex,gemini}/
-# and registers the plugin with each one. Idempotent: re-runs are safe.
+# Usage (non-interactive, scripted -- pick exact hosts):
+#   $env:AISP_HOSTS = "claude,codex"   # or "all", "none", "claude", "codex", "gemini"
+#   & "$r\scripts\bootstrap.ps1"
+#
+# Detects Claude Code / Codex CLI / Gemini CLI in ~/.{claude,codex,gemini}/.
+# By default prompts the user to choose which detected hosts to register.
+# Idempotent: re-runs are safe.
 #
 # Pure ASCII so non-UTF-8 PowerShell sessions parse it correctly.
 
@@ -15,6 +20,11 @@ $Branch    = "master"
 $RepoDir   = "$env:USERPROFILE\.ai-scientist\repo"
 $AiHome    = "$env:USERPROFILE\.ai-scientist"
 $PalaceDir = "$AiHome\palace"
+
+# Per-host install timeout (seconds). Gemini's extension install in particular
+# is known to hang; keep this generous but bounded so the bootstrap always
+# returns control to the user.
+$PerHostTimeoutSec = 90
 
 function Step([string]$msg) { Write-Host "  $msg" -ForegroundColor Cyan }
 function Ok([string]$msg)   { Write-Host "  [OK]   $msg" -ForegroundColor Green }
@@ -37,6 +47,92 @@ function Invoke-Native {
     } finally { $ErrorActionPreference = $prev }
 }
 
+# Run a native command with a hard wall-clock timeout. The command runs in a
+# background Job; if it doesn't finish within $TimeoutSec, the job is killed
+# and the function returns "timeout". This prevents `gemini extensions
+# install` (and similar long-runners) from hanging the bootstrap.
+function Invoke-WithTimeout {
+    param(
+        [Parameter(Mandatory)][scriptblock]$Script,
+        [int]$TimeoutSec = 90,
+        [string]$Description = "command"
+    )
+    $job = Start-Job -ScriptBlock $Script
+    $finished = Wait-Job -Job $job -Timeout $TimeoutSec
+    if ($finished) {
+        $output = Receive-Job -Job $job -ErrorAction SilentlyContinue
+        Remove-Job -Job $job -Force | Out-Null
+        return @{ status = "ok"; output = $output }
+    }
+    Stop-Job -Job $job -ErrorAction SilentlyContinue
+    Remove-Job -Job $job -Force -ErrorAction SilentlyContinue | Out-Null
+    return @{ status = "timeout"; output = "$Description exceeded $TimeoutSec seconds and was killed" }
+}
+
+# Detect installed CLI hosts. Returns a hashtable of present-on-disk flags.
+function Detect-Hosts {
+    return @{
+        claude = (Test-Path "$env:USERPROFILE\.claude")
+        codex  = (Test-Path "$env:USERPROFILE\.codex")
+        gemini = (Test-Path "$env:USERPROFILE\.gemini")
+    }
+}
+
+# Parse a comma-separated list of host names ("claude,codex", "all", "none")
+# against the detected hosts. Returns hashtable of {claude,codex,gemini} -> bool.
+function Parse-HostSelection {
+    param([string]$Spec, [hashtable]$Detected)
+    $out = @{ claude = $false; codex = $false; gemini = $false }
+    if ([string]::IsNullOrWhiteSpace($Spec)) { return $out }
+    $s = $Spec.Trim().ToLower()
+    if ($s -eq "none") { return $out }
+    if ($s -eq "all" -or $s -eq "*") {
+        foreach ($k in @("claude","codex","gemini")) {
+            if ($Detected[$k]) { $out[$k] = $true }
+        }
+        return $out
+    }
+    foreach ($tok in $s -split "[,\s]+") {
+        $t = $tok.Trim()
+        if (-not $t) { continue }
+        # Map numeric / abbreviated forms.
+        switch -Regex ($t) {
+            "^(1|c|cl|claude|claude.code|claude_code)$" { if ($Detected.claude) { $out.claude = $true } }
+            "^(2|x|cx|codex|codex.cli)$"               { if ($Detected.codex)  { $out.codex  = $true } }
+            "^(3|g|ge|gem|gemini|gemini.cli)$"         { if ($Detected.gemini) { $out.gemini = $true } }
+            default { Note "Unknown host token: '$t' (ignored)" }
+        }
+    }
+    return $out
+}
+
+# Interactive picker. Lists detected hosts; prompts for a selection.
+function Prompt-HostSelection {
+    param([hashtable]$Detected)
+    $any = $Detected.claude -or $Detected.codex -or $Detected.gemini
+    if (-not $any) {
+        Note "No CLI hosts detected (~/.claude, ~/.codex, ~/.gemini all absent)."
+        Note "The bootstrap will install Python deps + run --selftest only."
+        return @{ claude = $false; codex = $false; gemini = $false }
+    }
+    Write-Host ""
+    Write-Host "Detected agent CLI hosts on this machine:" -ForegroundColor Magenta
+    if ($Detected.claude) { Write-Host "  [1] Claude Code (~/.claude/)" }
+    if ($Detected.codex)  { Write-Host "  [2] Codex CLI    (~/.codex/)" }
+    if ($Detected.gemini) { Write-Host "  [3] Gemini CLI   (~/.gemini/)" }
+    Write-Host ""
+    Write-Host "Which hosts should I install ai-scientist into?"
+    Write-Host "  - Enter numbers separated by spaces or commas (e.g. '1 2', '1,3')"
+    Write-Host "  - 'all' or empty (Enter): every detected host"
+    Write-Host "  - 'none': skip all host registration (just install Python deps)"
+    Write-Host ""
+    $answer = Read-Host "  Your choice"
+    if ([string]::IsNullOrWhiteSpace($answer)) { $answer = "all" }
+    return (Parse-HostSelection -Spec $answer -Detected $Detected)
+}
+
+# ============================================================================
+
 Write-Host ""
 Write-Host "AI-Scientist Plugin -- one-command bootstrap" -ForegroundColor Magenta
 Write-Host ""
@@ -56,7 +152,20 @@ if (-not $git) {
 Ok "python: $((& python --version 2>&1) -join ' ')"
 Ok "git:    $((& git --version 2>&1) -join ' ')"
 
-# 2. Clone or update the canonical repo
+# 2. Detect hosts and decide selection (env override > interactive prompt)
+$detected = Detect-Hosts
+if ($env:AISP_HOSTS) {
+    $selected = Parse-HostSelection -Spec $env:AISP_HOSTS -Detected $detected
+    Step "Host selection from `$env:AISP_HOSTS = '$($env:AISP_HOSTS)'"
+    foreach ($k in @("claude","codex","gemini")) {
+        if ($selected[$k]) { Ok "$k -- selected" }
+        elseif ($detected[$k]) { Note "$k -- detected but not selected" }
+    }
+} else {
+    $selected = Prompt-HostSelection -Detected $detected
+}
+
+# 3. Clone or update the canonical repo
 Step "Syncing canonical repo at $RepoDir"
 New-Item -ItemType Directory -Force -Path $AiHome | Out-Null
 if (Test-Path "$RepoDir\.git") {
@@ -81,7 +190,7 @@ if (Test-Path "$RepoDir\.git") {
 
 $Plug = "$RepoDir\plugins\ai-scientist"
 
-# 3. Install Python dependencies (idempotent, --user)
+# 4. Install Python dependencies (idempotent, --user)
 Step "Installing Python dependencies (user-site)"
 Invoke-Native -IgnoreExitCode -Description "pip install requirements" -Script {
     python -m pip install --user --quiet -r "$Plug\mcp\requirements.txt" 2>&1 | Out-Null
@@ -106,13 +215,11 @@ if ($mempalaceCmd) {
     Note "mempalace CLI not on PATH yet; reopen the shell or set %PATH%"
 }
 
-# 4. Codex CLI -- auto-merge config + create junctions
-if (Test-Path "$env:USERPROFILE\.codex") {
+# 5. Codex CLI -- auto-merge config + create junctions  (only if selected)
+if ($selected.codex) {
     Write-Host ""
-    Step "Codex CLI detected -- registering plugin"
+    Step "Registering plugin into Codex CLI"
 
-    # 4a. Junction the codex clone (so .codex/INSTALL.md and existing tooling
-    #     keep working at the well-known path).
     $codexClone = "$env:USERPROFILE\.codex\ai-scientist-plugin"
     if (-not (Test-Path $codexClone)) {
         cmd /c mklink /J "$codexClone" "$RepoDir" 2>&1 | Out-Null
@@ -121,22 +228,18 @@ if (Test-Path "$env:USERPROFILE\.codex") {
         Ok "~/.codex/ai-scientist-plugin already present"
     }
 
-    # 4b. Junction skill + agents into ~/.agents/
-    New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.agents\skills"  | Out-Null
-    New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.agents\agents"  | Out-Null
+    New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.agents\skills" | Out-Null
+    New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.agents\agents" | Out-Null
     foreach ($pair in @(
         @("$env:USERPROFILE\.agents\skills\ai-scientist", "$Plug\skills\ai-scientist"),
         @("$env:USERPROFILE\.agents\agents\ai-scientist", "$Plug\agents")
     )) {
         $linkPath, $target = $pair
-        if (Test-Path $linkPath) {
-            cmd /c rmdir "$linkPath" 2>&1 | Out-Null
-        }
+        if (Test-Path $linkPath) { cmd /c rmdir "$linkPath" 2>&1 | Out-Null }
         cmd /c mklink /J "$linkPath" "$target" 2>&1 | Out-Null
     }
     Ok "Junctioned skill + agents into ~/.agents/"
 
-    # 4c. Auto-merge config.toml (idempotent; never duplicates)
     $configToml = "$env:USERPROFILE\.codex\config.toml"
     Invoke-Native -Description "merge codex config.toml" -Script {
         python "$RepoDir\scripts\_merge_codex_config.py" `
@@ -145,40 +248,45 @@ if (Test-Path "$env:USERPROFILE\.codex") {
             --quiet
     }
     Ok "config.toml merged (sentinel-bracketed; idempotent)"
-} else {
-    Note "Codex CLI not detected at ~/.codex/ -- skipping Codex registration"
+} elseif ($detected.codex) {
+    Note "Codex CLI present but not selected -- skipping"
 }
 
-# 5. Gemini CLI -- run extension install
-if (Test-Path "$env:USERPROFILE\.gemini") {
+# 6. Gemini CLI -- run extension install with timeout (only if selected)
+if ($selected.gemini) {
     Write-Host ""
-    Step "Gemini CLI detected -- installing extension"
+    Step "Registering plugin into Gemini CLI (timeout: ${PerHostTimeoutSec}s)"
     $gemini = Get-Command gemini -ErrorAction SilentlyContinue
     if ($gemini) {
-        Invoke-Native -IgnoreExitCode -Description "gemini extensions install" -Script {
-            gemini extensions install $RepoUrl 2>&1 | Out-Null
+        $url = $RepoUrl
+        $r = Invoke-WithTimeout -TimeoutSec $PerHostTimeoutSec -Description "gemini extensions install" -Script {
+            param() & gemini extensions install $using:url 2>&1
         }
-        Ok "Gemini extension installed"
+        if ($r.status -eq "ok") {
+            Ok "Gemini extension installed"
+        } else {
+            Note "Gemini install timed out or hung -- skipping. Re-run later with: gemini extensions install $url"
+        }
     } else {
         Note "gemini CLI not on PATH; install Gemini CLI then re-run this bootstrap"
     }
-} else {
-    Note "Gemini CLI not detected at ~/.gemini/ -- skipping Gemini registration"
+} elseif ($detected.gemini) {
+    Note "Gemini CLI present but not selected -- skipping"
 }
 
-# 6. Claude Code -- print the two slash commands
-if (Test-Path "$env:USERPROFILE\.claude") {
+# 7. Claude Code -- print the two slash commands (only if selected)
+if ($selected.claude) {
     Write-Host ""
-    Step "Claude Code detected"
+    Step "Claude Code selected"
     Note "Open a Claude Code session and paste these two slash commands:"
     Write-Host "      /plugin marketplace add danilkotelnikov/ai-scientist-plugin" -ForegroundColor White
     Write-Host "      /plugin install ai-scientist@ai-scientist-plugin"             -ForegroundColor White
-    Note "These cannot be issued from outside the agent (slash commands are session-only)."
-} else {
-    Note "Claude Code not detected at ~/.claude/ -- skipping Claude registration"
+    Note "Slash commands cannot be issued from outside the agent session."
+} elseif ($detected.claude) {
+    Note "Claude Code present but not selected -- skipping"
 }
 
-# 7. MCP self-test
+# 8. MCP self-test
 Write-Host ""
 Step "Running MCP self-test"
 $prev = $ErrorActionPreference; $ErrorActionPreference = "Continue"
@@ -191,7 +299,7 @@ if ($selftestCode -eq 0 -and $selftest -match "selftest: OK") {
     Note "self-test exit $selftestCode; output: $selftest"
 }
 
-# 8. Probe required env var
+# 9. Probe required env var
 Write-Host ""
 Step "Environment variables"
 if (-not $env:OPENALEX_EMAIL) {
@@ -206,9 +314,10 @@ foreach ($v in @("SEMANTIC_SCHOLAR_KEY", "ANNAS_BASE_URL", "ANNAS_DOWNLOAD_PATH"
     if ($val) { Ok "$v = (set)" } else { Note "$v not set (optional)" }
 }
 
-# 9. Summary
+# 10. Summary
 Write-Host ""
 Write-Host "Bootstrap complete." -ForegroundColor Green
 Write-Host "  - canonical repo: $RepoDir"
-Write-Host "  - update later:   iwr -useb https://raw.githubusercontent.com/danilkotelnikov/ai-scientist-plugin/master/scripts/update.ps1 | iex"
+Write-Host "  - re-run anytime: same one-liner (idempotent)"
+Write-Host "  - skip the prompt next time: `$env:AISP_HOSTS = 'claude,codex' (or 'all' / 'none')"
 Write-Host ""
