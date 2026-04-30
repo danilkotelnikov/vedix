@@ -15,88 +15,69 @@ End-to-end agentic research pipeline that runs across **Claude Code, Codex CLI, 
 - **Codex cross-validation (Claude Code-exclusive)** — every ideation / hypothesis / codegen / manuscript / review output is cross-checked against Codex via the [openai/codex-plugin-cc](https://github.com/openai/codex-plugin-cc) bridge. On disagreement, the user is prompted to adopt Codex's alternative, keep Claude's output, merge, or re-run. On Claude API errors / ToS refusals, the same task auto-falls-back to Codex. Anna's Archive searches are delegated to Codex by default.
 - **LLM-driven install prompts** — copy-paste prompts at `docs/AGENT_INSTALL_PROMPTS.md` that any agent can follow to install the plugin end-to-end on any host.
 
-## Quick start
+## Install (one command)
 
-### Claude Code
-
-```
-/plugin marketplace add danilkotelnikov/ai-scientist-plugin
-/plugin install ai-scientist@ai-scientist-plugin
-```
-
-Then run the install script (handles MemPalace pip install, clones the two cloned MCPs, runs the core MCP self-test):
-
-```powershell
-# Windows
-& "$env:USERPROFILE\.claude\plugins\cache\ai-scientist-plugin\ai-scientist\2.1.0\scripts\install.ps1"
-```
-
-```bash
-# Linux / macOS
-bash ~/.claude/plugins/cache/ai-scientist-plugin/ai-scientist/2.1.0/scripts/install.sh
-```
-
-> **Note on the install path.** The marketplace caches only the contents of the plugin's `source` directory (`./plugins/ai-scientist/` per `.claude-plugin/marketplace.json`), so `scripts/install.ps1` lives directly under the version directory — *not* under a nested `plugins/ai-scientist/` subdirectory.
-
-After install, the plugin appears in **Customize** with toggles for each agent's model and the per-phase enable flags.
-
-### Codex CLI
-
-See `.codex/INSTALL.md` for the full 9-step setup. Summary:
-
-**Linux / macOS:**
-
-```bash
-git clone https://github.com/danilkotelnikov/ai-scientist-plugin.git ~/.codex/ai-scientist-plugin
-mkdir -p ~/.agents/skills ~/.agents/agents
-ln -s ~/.codex/ai-scientist-plugin/plugins/ai-scientist/skills/ai-scientist ~/.agents/skills/ai-scientist
-ln -s ~/.codex/ai-scientist-plugin/plugins/ai-scientist/agents              ~/.agents/agents/ai-scientist
-cat ~/.codex/ai-scientist-plugin/plugins/ai-scientist/codex-config.toml.example >> ~/.codex/config.toml
-# Edit ~/.codex/config.toml to ensure your [features] table has multi_agent = true
-# (the example file no longer ships its own [features] block to avoid TOML duplicate-key errors)
-bash ~/.codex/ai-scientist-plugin/plugins/ai-scientist/scripts/install.sh
-codex restart
-```
+The bootstrap auto-detects every agent host you have (Claude Code, Codex CLI, Gemini CLI), clones the canonical repo to `~/.ai-scientist/repo/`, installs Python deps + MemPalace, idempotently merges the Codex `config.toml`, runs the MCP self-test, and prints the two slash commands you need to paste into Claude Code. Re-running is safe — every step is idempotent.
 
 **Windows (PowerShell):**
 
 ```powershell
-git clone https://github.com/danilkotelnikov/ai-scientist-plugin.git "$env:USERPROFILE\.codex\ai-scientist-plugin"
-New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.agents\skills","$env:USERPROFILE\.agents\agents" | Out-Null
-# Use junctions (no admin / Developer Mode required); replace 'ln -s' which doesn't exist on Windows
-cmd /c mklink /J "$env:USERPROFILE\.agents\skills\ai-scientist" "$env:USERPROFILE\.codex\ai-scientist-plugin\plugins\ai-scientist\skills\ai-scientist"
-cmd /c mklink /J "$env:USERPROFILE\.agents\agents\ai-scientist" "$env:USERPROFILE\.codex\ai-scientist-plugin\plugins\ai-scientist\agents"
-Get-Content "$env:USERPROFILE\.codex\ai-scientist-plugin\plugins\ai-scientist\codex-config.toml.example" | Add-Content "$env:USERPROFILE\.codex\config.toml"
-# Then open ~/.codex/config.toml and ensure the existing [features] table has multi_agent = true.
-& "$env:USERPROFILE\.codex\ai-scientist-plugin\plugins\ai-scientist\scripts\install.ps1"
-codex restart
+iwr -useb https://raw.githubusercontent.com/danilkotelnikov/ai-scientist-plugin/master/scripts/bootstrap.ps1 | iex
 ```
 
-### Gemini CLI
-
-See `.gemini/INSTALL.md` for the full setup. Summary:
+**Linux / macOS:**
 
 ```bash
-gemini extensions install https://github.com/danilkotelnikov/ai-scientist-plugin
-bash ~/.gemini/extensions/ai-scientist-plugin/plugins/ai-scientist/scripts/install.sh
-gemini --restart
+curl -fsSL https://raw.githubusercontent.com/danilkotelnikov/ai-scientist-plugin/master/scripts/bootstrap.sh | bash
 ```
 
-### Hand off install to your agent
+The bootstrap then:
 
-If you'd rather have your agent install everything for you, paste the appropriate prompt from **[`docs/AGENT_INSTALL_PROMPTS.md`](docs/AGENT_INSTALL_PROMPTS.md)** to your Claude Code / Codex / Gemini session. Each prompt is self-contained and walks the per-MCP configuration checklist.
+- creates `~/.codex/ai-scientist-plugin` as a junction/symlink to the canonical repo if Codex is installed
+- runs the merge helper (`scripts/_merge_codex_config.py`) which adds the 9 plugin MCP servers to `~/.codex/config.toml` between sentinel markers, never duplicates them, never breaks an existing `[features]` table, and never injects a UTF-8 BOM
+- runs `gemini extensions install` if Gemini CLI is detected
+- prints the two `/plugin marketplace add` + `/plugin install` slash commands if Claude Code is detected (slash commands cannot be issued from outside the agent session)
 
-### Required env vars
+## Update
+
+Same one-liner. Both bootstrap and update are idempotent; "update" just re-runs the bootstrap, which `git stash`-es any local clone changes, fetches the latest, re-installs deps, and re-merges the config.
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/danilkotelnikov/ai-scientist-plugin/master/scripts/update.ps1 | iex
+```
 
 ```bash
-export OPENALEX_EMAIL="your-email@example.com"           # required (polite-pool throttle)
-export SEMANTIC_SCHOLAR_KEY="your-key"                    # optional (unlocks /search)
-export ANNAS_BASE_URL="annas-archive.gl"                  # optional (full-text)
-export ANNAS_DOWNLOAD_PATH="$HOME/Downloads/AA"           # optional (full-text)
-export ANNAS_SECRET_KEY="your-key"                        # optional (full-text)
+curl -fsSL https://raw.githubusercontent.com/danilkotelnikov/ai-scientist-plugin/master/scripts/update.sh | bash
 ```
 
-> **OpenAlex API key required since 2026-02-13.** OpenAlex made API keys mandatory: keyless requests get only 100 credits/day (testing only). Singleton DOI lookups still cost 0 credits with a free key. Set `OPENALEX_EMAIL` to your contact email -- it is also used as the polite-pool identifier for Crossref. Get a free key at https://openalex.org/api-keys.
+## Required env var (set once)
+
+**Windows (PowerShell, persistent across sessions):**
+
+```powershell
+[Environment]::SetEnvironmentVariable("OPENALEX_EMAIL", "your-email@example.com", "User")
+```
+
+**Linux / macOS:**
+
+```bash
+echo 'export OPENALEX_EMAIL="your-email@example.com"' >> ~/.bashrc
+```
+
+> **OpenAlex API key required since 2026-02-13.** OpenAlex made API keys mandatory: keyless requests get only 100 credits/day (testing only). Singleton DOI lookups cost 0 credits with a free key. The `OPENALEX_EMAIL` is also used as the polite-pool identifier for Crossref. Get a free key at https://openalex.org/api-keys.
+
+Optional env vars (each unlocks more functionality):
+
+```bash
+export SEMANTIC_SCHOLAR_KEY="your-key"          # unlocks Semantic Scholar /search
+export ANNAS_BASE_URL="annas-archive.gl"        # full-text via Anna's Archive
+export ANNAS_DOWNLOAD_PATH="$HOME/Downloads/AA"
+export ANNAS_SECRET_KEY="your-key"
+```
+
+## Manual install (legacy, only if the bootstrap fails)
+
+The bootstrap is the supported path. The host-specific manual install guides at [`.codex/INSTALL.md`](.codex/INSTALL.md) and [`.gemini/INSTALL.md`](.gemini/INSTALL.md), and the agent-driven prompts at [`docs/AGENT_INSTALL_PROMPTS.md`](docs/AGENT_INSTALL_PROMPTS.md), remain available for environments where the bootstrap one-liner is blocked or for users who prefer to step through each phase by hand.
 
 ## Usage
 
