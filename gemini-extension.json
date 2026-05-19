@@ -1,27 +1,30 @@
 {
   "name": "ai-scientist",
-  "version": "2.1.0",
+  "version": "2.1.2",
   "description": "Cross-host agentic research pipeline. 16 dedicated subagents with per-host model pinning (Gemini 3.1 Pro Preview for heavy roles + Gemini 3 Flash Preview for light), BFTS tree-search experiments, VLM figure review, slide generation, per-project MemPalace memory, and 9 pre-configured MCP servers. v2.0.0: Python orchestrator (mcp/lib/orchestrator/) drives all phases; SKILL.md is a thin intent router. Bundles canonical Sakana Python alongside lightweight host-native agents.",
   "contextFileName": "GEMINI.md",
+  "settings": [
+    {"name": "OpenAlex email", "description": "Your contact email for OpenAlex polite-pool (required since 2026-02-13)", "envVar": "OPENALEX_EMAIL"},
+    {"name": "Semantic Scholar API key", "description": "Optional -- unlocks /search endpoint", "envVar": "SEMANTIC_SCHOLAR_KEY", "sensitive": true},
+    {"name": "Anna's Archive base URL", "description": "Mirror URL for Anna's Archive", "envVar": "ANNAS_BASE_URL"},
+    {"name": "Anna's Archive download path", "description": "Local path for full-text PDF downloads", "envVar": "ANNAS_DOWNLOAD_PATH"},
+    {"name": "Anna's Archive secret key", "description": "Member-tier access key", "envVar": "ANNAS_SECRET_KEY", "sensitive": true}
+  ],
   "mcpServers": {
     "ai-scientist": {
       "command": "python",
       "args": [
-        "${extensionPath}/mcp/server.py",
+        "${extensionPath}/plugins/ai-scientist/mcp/server.py",
         "--mode",
         "stdio"
       ],
       "env": {
-        "AI_SCIENTIST_HOME": "${env:HOME}/.ai-scientist",
-        "PYTHONPATH": "${extensionPath}/mcp/lib"
+        "PYTHONPATH": "${extensionPath}/plugins/ai-scientist/mcp/lib"
       },
-      "cwd": "${extensionPath}"
+      "cwd": "${extensionPath}/plugins/ai-scientist"
     },
     "mempalace": {
-      "command": "mempalace-mcp",
-      "env": {
-        "MEMPALACE_ROOT": "${env:HOME}/.ai-scientist/palace"
-      }
+      "command": "mempalace-mcp"
     },
     "openalex": {
       "command": "uvx",
@@ -31,18 +34,14 @@
         "alex-mcp"
       ],
       "env": {
-        "OPENALEX_MAILTO": "${env:OPENALEX_EMAIL}",
         "OPENALEX_RATE_PER_SEC": "10"
       }
     },
     "semanticscholar": {
       "command": "python",
       "args": [
-        "${env:HOME}/.ai-scientist/external/semanticscholar-MCP-Server/semantic_scholar_server.py"
-      ],
-      "env": {
-        "SEMANTIC_SCHOLAR_API_KEY": "${env:SEMANTIC_SCHOLAR_KEY}"
-      }
+        "${extensionPath}/../../../.ai-scientist/external/semanticscholar-MCP-Server/semantic_scholar_server.py"
+      ]
     },
     "arxiv": {
       "command": "uvx",
@@ -51,7 +50,7 @@
     "biorxiv": {
       "command": "python",
       "args": [
-        "${env:HOME}/.ai-scientist/external/bioRxiv-MCP-Server/biorxiv_server.py"
+        "${extensionPath}/../../../.ai-scientist/external/bioRxiv-MCP-Server/biorxiv_server.py"
       ]
     },
     "pubmed": {
@@ -60,12 +59,7 @@
     },
     "annas-mcp": {
       "command": "npx",
-      "args": ["-y", "annas-mcp", "mcp"],
-      "env": {
-        "ANNAS_BASE_URL": "${env:ANNAS_BASE_URL}",
-        "ANNAS_DOWNLOAD_PATH": "${env:ANNAS_DOWNLOAD_PATH}",
-        "ANNAS_SECRET_KEY": "${env:ANNAS_SECRET_KEY}"
-      }
+      "args": ["-y", "annas-mcp", "mcp"]
     },
     "fetcher": {
       "command": "npx",

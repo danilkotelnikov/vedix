@@ -7,8 +7,8 @@ The orchestrator skill (`SKILL.md`) and the 12 agent prompts use Claude Code too
 | Skill / agent references | Codex equivalent |
 |---|---|
 | `Task(subagent_type="...", prompt=...)` | `spawn_agent(agent_type="worker", message=<filled prompt>)` |
-| Multiple `Task(...)` calls in one message (parallel dispatch) | Multiple `spawn_agent(...)` calls in one message, then `wait` to collect results |
-| `Task` returns result | `wait` |
+| Multiple `Task(...)` calls in one message (parallel dispatch) | Multiple `spawn_agent(...)` calls in one message, then `wait_agent` to collect results |
+| `Task` returns result | `wait_agent` |
 | `Task` completes automatically | `close_agent` to free the worker slot |
 | `TodoWrite([...])` (task tracking) | `update_plan(...)` |
 | `Skill(skill="anthropic-skills:docx", ...)` | Skills load natively in Codex — invoke inline by referencing the skill name |

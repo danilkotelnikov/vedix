@@ -72,7 +72,7 @@ max_threads = 6
 max_depth = 1
 ```
 
-`multi_agent = true` unlocks `spawn_agent`, `wait`, `close_agent`, `send_input`, `resume_agent`. `max_threads = 6` is the default cap and is enough for the 3-bias reviewer fan-out plus one buffer slot.
+`multi_agent = true` unlocks `spawn_agent`, `wait_agent`, `close_agent`, `send_input`, `resume_agent`. `max_threads = 6` is the default cap and is enough for the 3-bias reviewer fan-out plus one buffer slot.
 
 **Critical:** the v2.1 dispatcher always calls `close_agent` after every `spawn_agent` wave to defeat the slot-leak bug ([codex issue #18335](https://github.com/openai/codex/issues/18335)). If you observe spawn slots leaking between turns, file an upstream bug; the plugin already does the right thing on its end.
 
@@ -196,7 +196,7 @@ The skill's prompts reference Claude Code tool names. Codex maps them automatica
 | Claude Code | Codex |
 |---|---|
 | `Task` (dispatch subagent) | `spawn_agent` |
-| Multiple `Task` calls in parallel | Multiple `spawn_agent` calls + `wait` |
+| Multiple `Task` calls in parallel | Multiple `spawn_agent` calls + `wait_agent` |
 | `TodoWrite` | `update_plan` |
 | `AskUserQuestion` | Codex inline prompt |
 | `Skill` tool | Skills load natively — follow instructions inline |

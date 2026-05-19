@@ -728,7 +728,7 @@ def handle_request(request):
                     },
                     "serverInfo": {
                         "name": "ai-scientist",
-                        "version": "2.1.0"
+                        "version": "2.1.2"
                     }
                 }
             }

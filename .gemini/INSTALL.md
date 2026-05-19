@@ -16,7 +16,7 @@ Run the agentic-research pipeline inside Gemini CLI. Skills + agents + MCPs are 
 gemini extensions install https://github.com/danilkotelnikov/ai-scientist-plugin
 ```
 
-This clones the repo to `~/.gemini/extensions/ai-scientist/`, reads `gemini-extension.json` from `plugins/ai-scientist/`, and registers the 9 MCP servers + skills + agents.
+This clones the repo to `~/.gemini/extensions/ai-scientist/`, reads `gemini-extension.json` from the repo root, and registers the 9 MCP servers + skills + agents.
 
 ## 2. Install the supporting Python package + literature MCPs
 
@@ -46,7 +46,7 @@ Add to `~/.bashrc` / `~/.zshrc` / `~/.config/fish/config.fish` for persistence.
 ## 4. Restart Gemini CLI
 
 ```bash
-gemini --restart
+gemini restart
 ```
 
 Gemini picks up the new skill, MCPs, and the extension manifest.

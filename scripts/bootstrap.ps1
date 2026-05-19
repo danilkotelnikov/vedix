@@ -215,6 +215,16 @@ if ($mempalaceCmd) {
     Note "mempalace CLI not on PATH yet; reopen the shell or set %PATH%"
 }
 
+# 4d. Run the plugin's own install.ps1 so the two cloned MCPs
+# (semanticscholar-MCP-Server + bioRxiv-MCP-Server) get cloned into
+# ~/.ai-scientist/external/. The bootstrap previously skipped this,
+# leaving those two MCPs broken on first use.
+Step "Running plugin install.ps1 (provisions semanticscholar + biorxiv git clones)"
+Invoke-Native -IgnoreExitCode -Description "plugin install.ps1" -Script {
+    & "$Plug\scripts\install.ps1" 2>&1 | Out-Host
+}
+Ok "Plugin install.ps1 completed (see output above)"
+
 # 5. Codex CLI -- auto-merge config + create junctions  (only if selected)
 if ($selected.codex) {
     Write-Host ""
