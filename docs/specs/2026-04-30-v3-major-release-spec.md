@@ -130,24 +130,58 @@ v3.0 keeps the v2.1.x foundation intact and layers new modules on top. Total mod
 │       ├── scripts/
 │       ├── skills/vedix/
 │       └── templates/
-│           ├── latex/                  # 6 venue templates (§7)
-│           ├── word/                   # 6 venue .dotx (§7)
+│           ├── latex/                  # 23 venue templates, ALL bundled (§7)
+│           ├── word/                   # 23 venue .dotx, ALL bundled (§7)
 │           └── ai_disclosure/          # auto-disclosure templates per venue
 ├── palace/                            # MemPalace per-project memory
-├── corpus/                            # curated per-discipline papers (§5.3)
-│   ├── chemistry/        (150 OA papers, ChromaDB index)
-│   ├── biology/          (150)
-│   ├── medicine/         (150)
-│   ├── physics/          (150)
-│   ├── mathematics/      (150)
-│   ├── geology/          (150)
-│   ├── computer_science/ (150)
-│   └── humanities/       (150)
-├── classifiers/                       # trained models (§5.3)
-│   ├── register_en.safetensors        # XLM-RoBERTa fine-tuned on EN corpus
-│   └── register_ru.safetensors        # XLM-RoBERTa fine-tuned on RU corpus
+├── corpus/                            # curated per-discipline × per-language papers (§5.3)
+│   ├── chemistry/        (150 OA papers × 7 languages, ChromaDB index)
+│   ├── biology/          (150 × 7)
+│   ├── medicine/         (150 × 7)
+│   ├── physics/          (150 × 7)
+│   ├── mathematics/      (150 × 7)
+│   ├── geology/          (150 × 7)
+│   ├── computer_science/ (150 × 7)
+│   └── humanities/       (150 × 7)
+├── classifiers/                       # trained models (§5.3) — per discipline × language
+│   ├── register_{discipline}_{lang}.safetensors  # 8 disciplines × 7 languages = 56 models
+│   └── manifest.json                  # model versions, training date, F1 on holdout
+├── byok/                              # §3.2 BYOK provider config
+│   ├── providers.json                 # active providers + fallback chain
+│   └── secrets/                       # per-provider API keys (chmod 600)
 └── knowledge.db                       # global cross-job knowledge store (carry-over)
 ```
+
+### 3.2 BYOK provider abstraction (multi-vendor + Russia + China)
+
+Vedix interfaces with LLM providers exclusively through a thin abstraction at `orchestrator/byok/`. The user configures one or more providers via `vedix provider add <name>`; the orchestrator routes each agent dispatch through the configured chain with automatic fallback.
+
+**Supported providers at v3.0:**
+
+| Family | Provider | SDK / endpoint | Region | Use-case |
+|---|---|---|---|---|
+| **Anthropic-direct** | Anthropic Claude | `anthropic` Python SDK | global | primary for Claude Code host |
+| **OpenAI-direct** | OpenAI | `openai` Python SDK | global | primary for Codex host |
+| **Google-direct** | Google Gemini | `google-generativeai` SDK | global | primary for Gemini host |
+| **Routers** | OpenRouter | OpenAI-compatible REST | global | multi-model gateway; cheap unified billing |
+| **Routers** | Together.ai | OpenAI-compatible REST | global | OSS-model gateway (Llama 3.x, Mixtral) |
+| **Chinese-direct** | DeepSeek | OpenAI-compatible REST (`api.deepseek.com`) | CN/global | DeepSeek-V3 / R1 reasoning; very cheap |
+| **Chinese-direct** | Qwen (Alibaba DashScope) | OpenAI-compatible REST + `dashscope` SDK | CN/global | Qwen 2.5 / 3 family |
+| **Chinese-direct** | Moonshot (Kimi) | OpenAI-compatible REST (`api.moonshot.cn`) | CN | Kimi K2 |
+| **Chinese-direct** | Zhipu GLM | OpenAI-compatible REST (`open.bigmodel.cn`) | CN | GLM-4 family |
+| **Russian-direct** | Sber GigaChat | `gigachat` Python SDK (REST + OAuth2 with `mTLS`) | RU | RU-native; sanctions-safe; ГОСТ-aware prose |
+| **Russian-direct** | YandexGPT | `yandex-cloud` Python SDK | RU | RU-native; Yandex Cloud auth |
+| **Other** | Mistral AI | `mistralai` SDK | EU | EU-resident option |
+| **Other** | Cohere | `cohere` SDK | global | RAG-tuned models |
+| **Self-hosted** | Local OpenAI-compatible | any URL accepting OpenAI schema (vLLM, llama.cpp server, Ollama) | air-gapped | for sanctions-affected or privacy-strict users |
+
+**Routing logic.** The user configures a **provider chain** like `gigachat → openrouter:anthropic/claude-opus-4 → openai:gpt-5-xhigh`. Each agent dispatch tries the first provider; on rate-limit / 5xx / context-overflow, it falls back to the next. The chain is per-agent-class configurable (e.g. for the `manuscript-writer` use Anthropic; for the `register-discriminator` use a cheaper Qwen).
+
+**Key handling.** Keys live in `~/.vedix/byok/secrets/` with `chmod 600`. No key ever leaves the local machine. Vedix.ai SaaS never collects user LLM keys — even Pro users BYOK; what Pro pays for is *infrastructure* (MCPs, job queue, classifier hosting), not LLM tokens.
+
+**Capability normalization.** The abstraction normalizes provider-specific quirks: GigaChat's mTLS auth, YandexGPT's IAM-token refresh, OpenRouter's `HTTP-Referer` header requirement, Moonshot's strict tool-calling schema. The `byok/capabilities.json` file declares per-provider feature support (tool-use? streaming? structured output? max context?). The dispatcher picks a provider that supports the features the agent needs.
+
+**Cost ledger.** Every call is logged with `{provider, model, input_tokens, output_tokens, estimated_cost_usd}` in `~/.vedix/byok/cost_ledger.jsonl`. Aggregated by `vedix cost report --since 30d`.
 
 ---
 
@@ -378,29 +412,172 @@ After Phase 5 (manuscript drafting) and before Phase 6 (citations):
 
 ### 5.3 Hybrid linguistic register discriminator (retrieval + trained classifier)
 
-Two layers, both run at runtime in the manuscript-writer's reflection loop.
+Two layers, both run at runtime in the manuscript-writer's reflection loop. Detailed dataset preparation and both training scripts (CPU + GPU paths) are spelled out below.
 
 **Layer A — retrieval-grounded discriminator (always on; no training required).**
 
-1. Per discipline (8 niches), curate ~150 OA papers (English + Russian) into `~/.vedix/corpus/{discipline}/`.
+1. Per discipline (8 niches) × per language (7 languages — EN/RU/ES/DE/FR/ZH/JA per §6), curate ~150 OA papers into `~/.vedix/corpus/{discipline}/{lang}/`.
 2. Embed paragraph chunks with `intfloat/multilingual-e5-large` into ChromaDB.
-3. At runtime, for each manuscript paragraph: embed it, k-NN against the matching discipline's corpus (k=5), score cosine similarity. If max similarity < 0.55, the paragraph reads out-of-register.
+3. At runtime, for each manuscript paragraph: embed it, k-NN against the matching discipline+language corpus (k=5), score cosine similarity. If max similarity < 0.55, the paragraph reads out-of-register.
 4. Dispatch a small LLM-judge with the paragraph + 3 retrieved corpus examples. Judge says: pass / fail-rewrite / fail-rewrite-with-suggestion.
 5. Loop: max 2 retries per paragraph.
 
-**Layer B — trained per-discipline + per-language classifier (optional second pass).**
+**Layer B — trained per-discipline × per-language classifier (always-on second pass).**
 
-1. Single automated script `scripts/train_register_classifier.py` does the full pipeline:
-   - Harvest the corpus (uses MCPs: openalex, semanticscholar, annas-mcp).
-   - Generate adversarial "AI-style" negatives by rewriting corpus paragraphs with a generator agent in LLM-ish register (Tier 1+2 blacklist words injected).
-   - Fine-tune `xlm-roberta-base` (multilingual) as a binary in-register/out-of-register classifier per discipline.
-2. Hardware: must fit Xeon 8368 CPU-only OR RTX 4060 8GB. The script auto-detects available hardware and:
-   - **GPU available (RTX 4060 8GB)**: train xlm-roberta-base (270M params) at batch size 4, gradient accumulation 8, fp16. Per-discipline checkpoint ≈ 1.1 GB. Training time per discipline: ~6-10 hours on the 4060.
-   - **CPU-only (Xeon 8368)**: train a smaller model — `xlm-roberta-distil` (130M params) or `mDeBERTa-v3-small` — at higher batch size since 512 GB RAM is ample. Per-discipline checkpoint ≈ 500 MB. Training time per discipline: ~18-30 hours on the Xeon. Run all 8 disciplines as a Sunday batch.
-3. After training, each discipline gets a `~/.vedix/classifiers/register_{discipline}_{language}.safetensors` file. Classifiers are not bundled in the repo (too large); they are downloaded from `models.vedix.ai` after `vedix model fetch` OR built locally with `vedix model train`.
-4. Runtime: classifier inference adds ~30ms per paragraph; gates run in parallel with Layer A. A paragraph that passes BOTH layers proceeds; failing either triggers a rewrite.
+#### 5.3.1 Dataset preparation pipeline
 
-This is the **only** v3.0 component that requires training. Layer A works without any training and ships as the v3.0 baseline. Layer B is opt-in via `vedix model train` and Pro-tier users get pre-trained classifiers via `vedix model fetch`.
+A single end-to-end script `scripts/prepare_corpus.py` orchestrates the dataset build for all 8 × 7 = 56 (discipline, language) pairs. Idempotent: re-running skips already-completed steps.
+
+Stages (each writes a checkpoint file under `~/.vedix/corpus/{discipline}/{lang}/.checkpoints/`):
+
+| Stage | Input | Output | Tool / module |
+|---|---|---|---|
+| **1. Acquisition** | (discipline, lang, year_range) → 200 OA paper candidates | `acquisition.jsonl` (one paper per line: title, DOI, year, license, full-text URL, language) | `mcp__openalex`, `mcp__semanticscholar`, `mcp__arxiv`, `mcp__biorxiv`, `mcp__pubmed`, `mcp__annas-mcp__article_search` |
+| **2. Download** | paper URLs (PDFs preferred; XML/HTML accepted) | `pdf/` directory (one PDF or XML per paper) | `mcp__annas-mcp__article_download`, `mcp__pubmed__get_full_text_article`, direct HTTPS via `httpx` |
+| **3. Text extraction** | PDFs / XMLs | `text/{paper_id}.txt` with paragraph boundaries preserved | `pdfminer.six` for PDFs; `lxml` for JATS XML; `tika` fallback for layout-broken PDFs |
+| **4. Language verification** | extracted text | filtered keep-list (papers whose detected language matches target) | `fasttext` lid.176.bin (loaded once into RAM) |
+| **5. Segmentation** | per-paper full text | `paragraphs.jsonl` (one paragraph per line with `paper_id`, `section`, `text`, `n_words`) | `spacy` sentencizer + paragraph-boundary heuristic |
+| **6. Deduplication** | paragraphs.jsonl | `paragraphs_dedup.jsonl` (cross-paper near-duplicates removed) | `datasketch` MinHashLSH at Jaccard 0.85 over 5-gram shingles |
+| **7. Positive labeling** | paragraphs_dedup.jsonl | `positives.jsonl` with `label=1` (in-register, human-authored) | rule-based: section ∈ {Introduction, Methods, Results, Discussion, Conclusion} AND n_words ∈ [40, 400] |
+| **8. Negative generation** | positives.jsonl | `negatives.jsonl` with `label=0` (AI-stylistic rewrite of positives) | dispatch `register-negative-generator` agent (uses configured BYOK provider) per paragraph, force Tier-1 AI-tells injection (excess vocabulary from Liang 2024, ICLR 2024 peer-review study) |
+| **9. Train/val/test split** | combined positives + negatives | `train.jsonl` (80%), `val.jsonl` (10%), `test.jsonl` (10%) | stratified random split by paper_id (no paper leaks across splits) |
+| **10. Statistics** | all the above | `corpus_stats.json` with class balance, n_samples, mean paragraph length, language confirmation rate | direct compute |
+
+Total runtime for all 56 (discipline, language) pairs: ~12–24 hours one-time on a workstation with reasonable bandwidth. The `--only discipline=chemistry,lang=en` flag scopes to one pair (~30 minutes).
+
+Storage footprint: ~3 GB per language across all 8 disciplines (PDFs + text + JSONL); 21 GB total for 7 languages.
+
+License compliance: only papers with Creative Commons or other OA-permissive licenses are retained at stage 4. The license field is preserved end-to-end; the published corpus omits the PDF and ships only paragraph-level text + DOI for traceability.
+
+#### 5.3.2 Training scripts (two paths: CPU and GPU)
+
+Both scripts share the same data pipeline (read `train.jsonl` / `val.jsonl` / `test.jsonl`) and produce the same output layout. The choice of script depends on the available hardware. Hardware detection auto-routes if you run the parent dispatcher `scripts/train_register_classifier.py`.
+
+##### 5.3.2.a CPU training — `scripts/train_register_classifier_cpu.py`
+
+**Target hardware:** Intel Xeon 8368 (38 cores / 76 threads / 512 GB RAM), or any modern multi-socket Xeon / EPYC with ≥ 64 cores and ≥ 128 GB RAM. **No GPU required.**
+
+**Model:** `microsoft/mDeBERTa-v3-small` (140M params, ~530 MB checkpoint). Multilingual, much smaller than XLM-R-large; fits comfortably in CPU RAM and trains in reasonable time on Xeon-class CPUs.
+
+**Optimizer:** `torch.optim.AdamW` with mixed-precision bf16 (Xeon 8368 supports bf16 via AVX-512 BF16). Batch size 16 per gradient step; gradient accumulation × 4 → effective batch size 64. Learning rate 2e-5, linear warmup over 6% of steps, cosine decay.
+
+**Command — what to launch:**
+
+```bash
+# Activate venv
+source ~/.vedix/repo/venv/bin/activate   # Linux/macOS
+# or: ~/.vedix/repo/venv/Scripts/Activate.ps1  # Windows
+
+# Train ALL 56 (discipline, language) pairs sequentially, with checkpointing
+python ~/.vedix/repo/plugins/vedix/scripts/train_register_classifier_cpu.py \
+  --corpus-root ~/.vedix/corpus \
+  --output-root ~/.vedix/classifiers \
+  --languages en,ru,es,de,fr,zh,ja \
+  --disciplines chemistry,biology,medicine,physics,mathematics,geology,computer_science,humanities \
+  --model microsoft/mDeBERTa-v3-small \
+  --batch-size 16 --grad-accum 4 \
+  --lr 2e-5 --epochs 3 \
+  --bf16 \
+  --num-workers 12 \
+  --resume-from-checkpoint auto \
+  --log-to-tensorboard ~/.vedix/classifiers/tb_logs
+
+# Train just one (discipline, language) pair
+python .../train_register_classifier_cpu.py \
+  --only-pair "chemistry:en"
+```
+
+**Runtime estimates (Xeon 8368, 76 threads, 512 GB RAM):**
+- Per (discipline, language) pair: ~20–28 hours
+- All 56 pairs sequentially: ~7–9 days continuous
+- With `--parallel-pairs 4` (separate processes, each on 19 threads): ~2–3 days
+
+**Output files (per pair):**
+
+```
+~/.vedix/classifiers/
+├── register_chemistry_en/
+│   ├── model.safetensors        # ~530 MB
+│   ├── tokenizer.json
+│   ├── config.json
+│   ├── training_log.jsonl       # per-step loss + LR
+│   ├── metrics.json             # final F1 / precision / recall on test split
+│   └── checkpoint-best/         # best-val checkpoint for resume
+├── register_chemistry_ru/...
+├── ...
+├── manifest.json                # all 56 models registered with version + F1
+└── tb_logs/                     # TensorBoard event files
+```
+
+**Quality gate:** training auto-aborts a pair if validation F1 < 0.78 after 1 epoch (signals bad data); raises a warning and continues to the next pair. The pair must be debugged manually before re-running.
+
+##### 5.3.2.b GPU training — `scripts/train_register_classifier_gpu.py`
+
+**Target hardware:** NVIDIA RTX 4060 8 GB (or any GPU with ≥ 8 GB VRAM). Optimized for the 8 GB tier; will use more VRAM if available.
+
+**Model:** `xlm-roberta-base` (278M params, ~1.1 GB checkpoint in fp16). Better quality than mDeBERTa-v3-small (expected +2–4 F1) but needs the GPU.
+
+**Optimizer:** `torch.optim.AdamW`, fp16 mixed precision (RTX 4060 supports fp16 via Ampere/Ada Tensor Cores). Batch size 4, gradient accumulation × 16 → effective batch size 64. Same LR schedule as CPU.
+
+**Memory plan (RTX 4060 8 GB):** Model (~1.1 GB fp16) + optimizer states (~2 GB Adam fp32 moments) + activations (~3 GB) + gradients (~1 GB) ≈ 7.1 GB peak. Fits with 1 GB headroom for cuDNN workspace. `gradient_checkpointing=True` is an escape hatch if OOM occurs on a sequence-length-512 batch.
+
+**Command — what to launch:**
+
+```bash
+# Activate venv (same as above)
+source ~/.vedix/repo/venv/bin/activate
+
+# Train ALL 56 pairs sequentially
+python ~/.vedix/repo/plugins/vedix/scripts/train_register_classifier_gpu.py \
+  --corpus-root ~/.vedix/corpus \
+  --output-root ~/.vedix/classifiers \
+  --languages en,ru,es,de,fr,zh,ja \
+  --disciplines chemistry,biology,medicine,physics,mathematics,geology,computer_science,humanities \
+  --model xlm-roberta-base \
+  --batch-size 4 --grad-accum 16 \
+  --lr 2e-5 --epochs 3 \
+  --fp16 \
+  --gradient-checkpointing \
+  --resume-from-checkpoint auto \
+  --log-to-tensorboard ~/.vedix/classifiers/tb_logs
+
+# Train just one pair
+python .../train_register_classifier_gpu.py --only-pair "physics:ru"
+```
+
+**Runtime estimates (RTX 4060 8 GB):**
+- Per (discipline, language) pair: ~6–10 hours
+- All 56 pairs sequentially: ~2–3 weeks continuous
+- Recommended: weekend run of 8–10 pairs at a time; pause + resume via `--resume-from-checkpoint auto`
+
+**Output files:** identical layout to CPU path. The `manifest.json` records `device_trained_on: "cuda:0 NVIDIA RTX 4060"` per pair so users can verify provenance.
+
+##### 5.3.2.c Auto-dispatcher — `scripts/train_register_classifier.py`
+
+```bash
+# Detects available hardware and picks CPU or GPU script automatically
+python ~/.vedix/repo/plugins/vedix/scripts/train_register_classifier.py \
+  --corpus-root ~/.vedix/corpus \
+  --output-root ~/.vedix/classifiers \
+  --auto
+```
+
+Detection logic:
+1. If `torch.cuda.is_available()` AND `torch.cuda.get_device_properties(0).total_memory >= 7 * 1024**3`: dispatch GPU script.
+2. Else if `psutil.cpu_count(logical=False) >= 16` AND `psutil.virtual_memory().total >= 64 * 1024**3`: dispatch CPU script.
+3. Else: raise `HardwareInsufficientError` with explicit guidance to use a remote workstation or Pro-tier hosted training (Vedix.ai SaaS).
+
+##### 5.3.2.d Distribution + inference
+
+After training, the user has 56 model directories. They can:
+
+- **Use locally** — runtime auto-loads the matching `~/.vedix/classifiers/register_{discipline}_{lang}/` per manuscript.
+- **Publish** — `vedix model publish register_chemistry_en --to models.vedix.ai` uploads the model to the Vedix model registry. Reviewed by maintainers; if accepted, becomes the canonical model for that pair and ships in subsequent `vedix model fetch` updates.
+- **Pull pre-trained** — `vedix model fetch` downloads the maintainer-curated canonical models from `models.vedix.ai`. Free for all tiers. Pro tier adds priority bandwidth + quarterly auto-update.
+
+**Runtime inference cost.** With all 56 models loaded lazily, peak RAM during a manuscript run that touches 2 disciplines × 2 languages = 4 models ≈ 2 GB. Per-paragraph inference: ~30ms on CPU, ~5ms on GPU.
+
+This is the **only** v3.0 component that requires training. Layer A works without any training and ships as the v3.0 baseline. Layer B is **always on by default** in v3.0 — every install gets pre-trained classifiers via `vedix model fetch` at install time (~6 GB download). Local re-training is opt-in for advanced users (`vedix model train`).
 
 ### 5.4 Per-artifact explanatory rationale files
 
@@ -433,64 +610,160 @@ For experimental papers, after Phase 8 (compile):
 - Compares the fresh-run numerical results against the manuscript's claimed numbers.
 - Flags any irreproducible result with `reproducibility_audit.json` + a `.rationale.md` documenting the divergence (was it stochastic? did the random seed not propagate? was there an off-by-one in the codepath that loaded results?).
 
+### 5.7 Web UI for the orchestrator (absorbed from v3.1)
+
+A browser app at `app.vedix.ai` (and a self-hostable container image `vedix/web:latest` for institutional / on-prem users) provides:
+
+- **Job submission form** — same options as the CLI; user picks discipline / language / venue / BYOK provider chain and submits.
+- **Live progress stream** — Server-Sent Events feed of the orchestrator's phase progression; per-agent status, intermediate artifacts as they land.
+- **Manuscript preview** — split-pane LaTeX source ↔ rendered PDF; click any sentence to see its provenance ledger entry (§4.7) and rationale (§5.4).
+- **MemPalace browser** — UI over the project's MemPalace memory (search drawers, traverse tunnels, view stats).
+- **BYOK provider config** — secure UI to add/remove/reorder providers in the §3.2 chain.
+- **Cost ledger view** — graph of monthly LLM spend per provider per agent class.
+
+Stack: **React 19 + TypeScript** + **TanStack Query** for server state + **shadcn/ui** for components + **react-pdf** for the preview pane. Backend talks to the Vedix.ai SaaS API (or the local plugin's `mcp__vedix` HTTP transport for on-prem).
+
+### 5.8 IDE plugin distribution (absorbed from v3.1)
+
+Two thin clients that wrap the CLI for users who don't want to leave their IDE:
+
+**VS Code extension (`vedix.vedix`)**:
+- Command palette: `Vedix: New manuscript`, `Vedix: Switch venue`, `Vedix: Run reproducibility audit`
+- Side-panel job-progress view
+- Hover-on-citation: shows provenance + counterfactual-probe verdict
+- Status bar: current cost-ledger month-to-date
+
+**JetBrains plugin (`vedix-jetbrains.jar`)** for IntelliJ IDEA / PyCharm / CLion / WebStorm:
+- Tool window with the same surface as the VS Code extension
+- Action: `Vedix → New Manuscript` keyboard shortcut
+
+Both ship as **OSS** on their respective marketplaces (Marketplace + JetBrains Plugin Repository). Both call into the user's local CLI (`vedix ...`) or, if configured, the Vedix.ai SaaS.
+
+### 5.9 Pre-print server auto-submission (absorbed from v3.1)
+
+After a manuscript completes Phase 8 + parity check + AI-disclosure generation:
+
+- **arXiv submission** — via the arXiv API + the user's stored arXiv credentials (chmod 600 in `~/.vedix/byok/secrets/arxiv.token`). Auto-fills metadata; user reviews + confirms the submission in their browser.
+- **bioRxiv submission** — via Cold Spring Harbor's bioRxiv submission API.
+- **OSF (Open Science Framework)** — via OSF's REST API with a user-stored personal access token.
+- **SSRN** — via SSRN's author dashboard URL with auto-fill query parameters (SSRN does not offer a public submission API; we use deep-linked form pre-fill).
+- **Institutional repositories** — via OAI-PMH for any repository that accepts SWORD v2 deposits.
+
+CLI: `vedix submit-preprint --to arxiv|biorxiv|osf|ssrn|<institutional>`. The orchestrator never submits silently — every submission is a separate user-confirmed action.
+
+### 5.10 Federated MemPalace (absorbed from v3.1)
+
+For multi-lab collaborations: a MemPalace instance can be marked `shared` and federated to other Vedix users with read-only or read-write access via OAuth2-authenticated WebSocket.
+
+- **Access model:** per-drawer ACL (private / lab-shared / org-shared / public).
+- **Sync:** CRDT-backed; offline edits reconcile via Yjs at next connection.
+- **Conflict resolution:** automatic CRDT merge for non-conflicting edits; explicit human resolution UI for conflicting edits on the same drawer.
+
+CLI: `vedix palace share <palace> --to <email|org-id> --access read-write`.
+
+### 5.11 Real-time multi-author collaboration (absorbed from v3.1)
+
+For multiple authors editing the same manuscript concurrently:
+
+- Manuscript edits propagated via **Y.js** CRDT over WebSocket.
+- Cursor + selection presence shown in the Web UI.
+- Reviewer comments are first-class CRDT entities (not the manuscript text itself, so they cannot accidentally drop edits).
+- The provenance ledger (§4.7) records per-edit author identity, so the auto-disclosure file correctly attributes contributions per author.
+
+This is the natural pair to §5.10; both are CRDT-backed and share the Y.js + WebSocket infrastructure.
+
 ---
 
-## 6. Languages
+## 6. Languages (all first-class at v3.0)
 
-### 6.1 v3.0 scope: English + Russian first-class
+v3.0 ships first-class support for **7 languages**, each with native register classifier, citation-style backend, LaTeX font stack, Word template, and discipline-specific prose lints.
 
-- ГОСТ-7.0.5-2008 citation backend (Russian academic style)
-- Cyrillic-aware LaTeX templates (`\usepackage[utf8]{inputenc}\usepackage[T2A]{fontenc}` + CMU Serif or Noto Serif)
-- Word output: `.dotx` templates with Times New Roman + Liberation Serif fallback for portability
-- Russian academic prose register lint: impersonal-passive preference; flag paragraph-initial `Кроме того`, `Более того`, `Также`, `Стоит отметить`, `Важно подчеркнуть`, `Следует отметить`; em-dash budget tuned to 4 / 1k words (Russian uses dashes more liberally than English)
-- BibTeX entries preserve original-language orthography (no transliteration)
+| # | Language | Code | Citation backend | LaTeX font stack | Register lint notes |
+|---|---|---|---|---|---|
+| 1 | **English** | `en` | numeric-comp, Vancouver, APA-7 | Latin Modern, Computer Modern | Tier 1–4 anti-LLMish lint per Liang 2024 |
+| 2 | **Russian** | `ru` | ГОСТ-7.0.5-2008 | T2A fontenc + Noto Serif / CMU Cyrillic | impersonal-passive; flag «Кроме того», «Более того», «Также», «Стоит отметить», «Важно подчеркнуть», «Следует отметить»; em-dash budget 4 / 1k words |
+| 3 | **Spanish** | `es` | ISO-690-2 (the de-facto Spanish-academic style) | Latin Modern + `\usepackage[spanish]{babel}` | flag clausulas pesadas paragraph-initial; «Es importante destacar», «Cabe señalar» |
+| 4 | **German** | `de` | DIN 1505-2 | Latin Modern + `\usepackage[ngerman]{babel}` | flag overuse of «Hierbei», «Hingegen», «Darüber hinaus»; nominalization rate cap |
+| 5 | **French** | `fr` | NF Z44-005 | Latin Modern + `\usepackage[french]{babel}` | flag «Il est à noter que», «Il convient de souligner» paragraph starts |
+| 6 | **Chinese (Simplified)** | `zh` | GB/T 7714-2015 (with `\usepackage{gbt7714}`) | Source Han Serif SC / Noto Serif CJK SC | character-mode register classifier; flag overuse of 综上所述, 总而言之, 不仅...而且 transitions |
+| 7 | **Japanese** | `ja` | JIS X 0202 (with `\usepackage[japanese]{babel}` via XeLaTeX) | Source Han Serif Japan / Noto Serif CJK JP | mode 敬体 vs 常体 consistency check; flag overuse of 〜と考えられる, 〜と思われる |
 
-### 6.2 Deferred to v3.1
+**Implementation outline (applies to every language):**
 
-- Spanish (`Es`, `Estado del arte`-style register)
-- German (DIN 1505 citations)
-- French (NF Z44-005)
-- Japanese (JIS X 0202)
-- Simplified + Traditional Chinese (GB/T 7714 + APA 7.0 CJK)
+- ChromaDB corpus stored per (`discipline`, `lang`) at `~/.vedix/corpus/{discipline}/{lang}/`. See §5.3.1 dataset prep.
+- Per-language register classifier shipped per §5.3.2 (mDeBERTa-v3-small CPU path; XLM-RoBERTa-base GPU path); 8 × 7 = 56 classifiers total.
+- LaTeX engine selection: `pdflatex` for languages 1–5; `xelatex` (which handles CJK fonts natively) for `zh` + `ja`. The `publisher_engine` picks the engine per `--lang` flag.
+- BibTeX entries preserve original-language orthography (no transliteration). Mixed-language reference lists are supported (a paper can cite both Russian and English sources side-by-side under any chosen output-language ordering).
+- Word output `.dotx` templates per (`venue` × `lang`) — 23 venues × 7 languages = 161 total `.dotx` templates. All bundled at install (see §7).
+
+**Out-of-scope languages at v3.0:** Traditional Chinese (`zh-TW`), Korean, Arabic, Hindi, Portuguese, Italian. Added via `vedix add-language` plugin point post-v3.0 if user demand surfaces.
 
 ---
 
 ## 7. Publisher template engine
 
-`publisher_engine.py` provides LaTeX + Word output parity across **14 venue families** at v3.0, plus a publisher-neutral Overleaf-default preprint template for arXiv / OSF / SSRN / institutional repository use.
+`publisher_engine.py` provides LaTeX + Word output parity across **23 venue families** at v3.0, plus a publisher-neutral Overleaf-default preprint template for arXiv / OSF / SSRN / institutional repository use.
+
+**Bundling decision (v3.0):** **all 23 templates are bundled at install.** No fetch-on-first-use. Every install carries every template + every (`venue` × `lang`) `.dotx` permutation. Rationale: zero network dependency at use time; predictable storage cost (~80 MB total for all LaTeX class files + Word templates + 7-language `.dotx` permutations + ai_disclosure variants); offline submission flows work end-to-end.
 
 The engine is organized by **publisher family** rather than per-journal because most modern publishers ship a single LaTeX class that covers hundreds of their journals (e.g. `elsarticle.cls` covers > 2,000 Elsevier titles). Per-journal variants are layered on top via small JSON profiles that override section ordering, word limits, and reference-style sub-keys.
 
-### 7.1 v3.0 venue catalog
+### 7.1 v3.0 venue catalog (all bundled)
 
-| # | Venue family | Publisher | LaTeX class | Word template | Citation style | Region | Tier |
-|---|---|---|---|---|---|---|---|
-| 1 | **Overleaf preprint default** (`preprint`) | publisher-neutral | `article.cls` 11pt single-column + `biblatex` (numeric-comp) | `preprint.dotx` | numeric-comp (arXiv-friendly) | global | **bundled** |
-| 2 | **Nature** (Nature, Nat Comms, Nat Methods, Nat Mach Intell) | Springer Nature flagship | `nature.cls` (single-column variant) | `nature.dotx` | Nature | global | bundled |
-| 3 | **Elsevier** (Cell Reports Med, Lancet*, Trends in *, NeuroImage, etc.) | Elsevier | `elsarticle.cls` (single or double column) | `elsevier.dotx` | Elsevier numeric (`model3-num-names.bst`) | global | fetch-on-first-use |
-| 4 | **Springer Nature journals** (`sn-jnl`) | Springer Nature | `sn-jnl.cls` (Springer's universal class) | `sn-jnl.dotx` | Springer numeric | global | fetch-on-first-use |
-| 5 | **Taylor & Francis** | Taylor & Francis | `interact.cls` | `taylor-francis.dotx` | T&F numeric or author-date | global | fetch-on-first-use |
-| 6 | **Frontiers** (Frontiers in *) | Frontiers Media | `frontiers.cls` (their official class) | `frontiers.dotx` | Frontiers Reference Style (Vancouver-like) | global; open access | fetch-on-first-use |
-| 7 | **Wiley** | Wiley | `WileyNJD-v2.cls` | `wiley.dotx` | Wiley numeric | global | fetch-on-first-use |
-| 8 | **SAGE** | SAGE Publications | `sagej.cls` | `sage.dotx` | SAGE author-date or Vancouver | global; social-sci heavy | fetch-on-first-use |
-| 9 | **PLOS** (PLOS One, PLOS Biology, PLOS Comp Biol) | Public Library of Science | `plos2015.cls` (current) | `plos.dotx` | Vancouver | global; open access | fetch-on-first-use |
-| 10 | **Cell Press** (Cell, Neuron, Cell Reports — not the Elsevier sub-imprints) | Cell Press (Elsevier brand) | `cell.cls` (Cell-specific variant) | `cell.dotx` | Cell | global | fetch-on-first-use |
-| 11 | **IEEE / ACM** | IEEE + ACM | `IEEEtran.cls` and `acmart.cls` (two sub-templates under one venue alias) | `ieee.dotx`, `acm.dotx` | IEEE, ACM (numeric) | global; CS / EE | fetch-on-first-use |
-| 12 | **ACS** | American Chemical Society | `achemso.cls` | `acs.dotx` | ACS | global; chemistry | fetch-on-first-use |
-| 13 | **MDPI** | MDPI | `mdpi.cls` | `mdpi.dotx` | MDPI numeric | global; open access | fetch-on-first-use |
-| 14 | **ГОСТ-generic** (ВАК-perechen' Russian) | publisher-neutral, ГОСТ-compliant | `gost-article.cls` + `T2A` fontenc | `gost-generic.dotx` | ГОСТ-7.0.5-2008 | RU | **bundled** |
+| # | Venue family | Publisher | LaTeX class | Citation style | Region | Coverage |
+|---|---|---|---|---|---|---|
+| 1 | **Overleaf preprint default** (`preprint`) | publisher-neutral | `article.cls` 11pt single-column + `biblatex` (numeric-comp) | numeric-comp (arXiv-friendly) | global | arXiv, bioRxiv, OSF, SSRN, institutional repositories |
+| 2 | **Nature** (Nature, Nat Comms, Nat Methods, Nat Mach Intell) | Springer Nature flagship | `nature.cls` | Nature | global | Nature family |
+| 3 | **Elsevier** | Elsevier | `elsarticle.cls` | Elsevier numeric (`model3-num-names.bst`) | global | ~2,500 Elsevier titles (NeuroImage, Lancet*, Trends in *, etc.) |
+| 4 | **Springer Nature journals** | Springer Nature | `sn-jnl.cls` | Springer numeric | global | ~3,000 Springer Nature journals |
+| 5 | **Taylor & Francis** | Taylor & Francis | `interact.cls` | T&F numeric or author-date | global | ~2,700 T&F journals |
+| 6 | **Frontiers** | Frontiers Media | `frontiers.cls` | Frontiers Reference Style (Vancouver-like) | global; OA | Frontiers in * family |
+| 7 | **Wiley** | Wiley | `WileyNJD-v2.cls` | Wiley numeric | global | Wiley journals |
+| 8 | **SAGE** | SAGE Publications | `sagej.cls` | SAGE author-date or Vancouver | global; social-sci heavy | SAGE journals |
+| 9 | **PLOS** | Public Library of Science | `plos2015.cls` | Vancouver | global; OA | PLOS One, Biology, Comp Biol, etc. |
+| 10 | **Cell Press** | Cell Press (Elsevier brand) | `cell.cls` | Cell | global | Cell, Neuron, Cell Reports |
+| 11 | **IEEE** | IEEE | `IEEEtran.cls` | IEEE | global; CS/EE | all IEEE titles + conferences |
+| 12 | **ACM** | ACM | `acmart.cls` | ACM (numeric) | global; CS | TOCHI, CACM, SIGGRAPH, etc. |
+| 13 | **ACS** | American Chemical Society | `achemso.cls` | ACS | global; chemistry | JACS, JOC, OL, etc. |
+| 14 | **MDPI** | MDPI | `mdpi.cls` | MDPI numeric | global; OA | MDPI titles |
+| 15 | **AIP / APS** | AIP + APS | `revtex4-2.cls` | RevTeX numeric | global; physics | Physical Review, JCP, AIP Advances |
+| 16 | **RSC** | Royal Society of Chemistry | `rsc.cls` | RSC author-date | global; chemistry | Chem Sci, Chem Comm, etc. |
+| 17 | **Cambridge University Press** | CUP | `cambridge7A.cls` | author-date or numeric (per-journal) | global | Nature CUP family |
+| 18 | **Oxford University Press** | OUP | `OUPMaths.cls` and `oup-contemporary.cls` (math vs other) | OUP styles | global | OUP titles |
+| 19 | **BMJ** | BMJ Publishing Group | `bmj.cls` | Vancouver | global; medicine | BMJ, BMJ Open, etc. |
+| 20 | **JAMA** | American Medical Association | `jama-style.cls` (in-house under MIT) | AMA | global; medicine | JAMA Network |
+| 21 | **ГОСТ-generic** (ВАК-perechen' Russian) | publisher-neutral, ГОСТ-compliant | `gost-article.cls` + T2A | ГОСТ-7.0.5-2008 | RU | most ВАК-perechen' journals |
+| 22 | **DAN RAS** (Доклады Российской Академии Наук) | RAS | `dan-ras.cls` (in-house under MIT) | ГОСТ-7.0.5 + DAN-specific section conventions | RU | Doklady Mathematics, Doklady Physics, Doklady Biological Sciences, etc. |
+| 23 | **Uspekhi family** (Успехи Химии / Физики / Математических наук) | RAS Steklov + Kapitza Inst. | `uspekhi.cls` (in-house under MIT) | ГОСТ-7.0.5 + Uspekhi-specific review-article conventions | RU | Russ. Chem. Rev. / Phys. Usp. / Russ. Math. Surv. |
 
-**Bundled at install time (small footprint):** entries 1, 2, 14 — the Overleaf preprint default, Nature, and ГОСТ-generic. Total bundled-template payload < 4 MB.
+For every venue, the engine emits both:
+- **LaTeX** — `manuscript.tex` + bundled `.cls` + `references.bib` → PDF via the appropriate engine (`pdflatex` / `xelatex` per §6)
+- **Word** — `manuscript.docx` from a `.dotx` template, generated via `pandoc` + a venue-specific filter (`templates/word/{venue}_{lang}.dotx`)
 
-**Fetch-on-first-use:** entries 3–13. Triggered by `vedix fetch-venue <name>` or implicitly on first `--venue <name>` invocation. Each template family ~ 1–3 MB. Cached under `~/.vedix/templates/<venue>/` for offline reuse.
+Where the publisher does not distribute an open class file (e.g. JAMA, DAN RAS, Uspekhi), we author an in-house class file under MIT license that mimics the documented submission formatting. The `templates/<venue>/PROVENANCE.md` records: upstream-class-file source URL + license (or "in-house, MIT" + reference to the publisher's documented author guidelines).
 
-### 7.2 Overleaf preprint default — design rationale
+### 7.2 Bundle composition + storage budget
+
+Total bundle payload at install:
+
+| Layer | Size |
+|---|---|
+| 23 LaTeX class files + their auxiliary files | ~12 MB |
+| 23 × 7 `.dotx` Word templates (one per `venue × lang` pair = 161 files) | ~55 MB |
+| 23 `ai_disclosure_<venue>.tex` templates | ~1 MB |
+| Per-journal JSON profiles (top 200 journals across the 23 families) | ~1 MB |
+| 23 `PROVENANCE.md` files | < 1 MB |
+| **Total bundle** | **~70 MB** |
+
+Bundle ships in the plugin install payload; no network calls needed at use time. Quarterly re-validation against publisher sources is a *maintainer* responsibility (CI job `verify-templates`), not a user-runtime concern.
+
+### 7.3 Overleaf preprint default — design rationale
 
 The `preprint` template is the **publisher-agnostic single-column default** for use when the author has not yet picked a target venue, is preparing an arXiv / bioRxiv / OSF deposit, or is iterating before submission:
 
 - **Class:** standard `article.cls` (LaTeX2e core; no proprietary class file).
 - **Layout:** 11pt, single-column, A4 (with US-letter switch flag), 1-inch margins.
-- **Fonts:** Latin Modern Roman (default) + `lmodern` package. Russian variant uses `Noto Serif` + `T2A` fontenc.
+- **Fonts:** Latin Modern Roman (default) + `lmodern` package. Russian variant uses `Noto Serif` + `T2A` fontenc. CJK variants use `Source Han Serif` via XeLaTeX.
 - **Bibliography:** `biblatex` with `numeric-comp` style (arXiv-friendly) + `biber` backend; switch to `authoryear` via `--bib-style authoryear`.
 - **Section structure:** abstract, keywords, 1 Introduction, 2 Related work, 3 Methods, 4 Results, 5 Discussion, 6 Conclusion, References, Appendix (in that order; reorderable).
 - **No publisher branding.** No logo, no journal name, no copyright footer.
@@ -505,17 +778,20 @@ CLI examples:
 # defaults to --venue preprint
 
 /vedix switch venue elsevier
-# fetches elsarticle.cls on first use, re-typesets
+# re-typesets to elsarticle.cls (already bundled at install)
 
 /vedix switch venue elsevier:cell-reports-medicine
 # uses elsarticle.cls + the Cell Reports Medicine per-journal JSON profile
 # (section ordering, word limits, reference style sub-key)
 
-/vedix switch venue gost-generic
+/vedix switch venue gost-generic --lang ru
 # Russian, ГОСТ-7.0.5
+
+/vedix switch venue revtex42 --lang en
+# AIP/APS RevTeX 4.2 — physics
 ```
 
-### 7.3 Parity check (LaTeX ↔ Word)
+### 7.4 Parity check (LaTeX ↔ Word)
 
 After generating both `manuscript.pdf` and `manuscript.docx`, the publisher engine emits `parity_report.json` comparing them along:
 
@@ -528,60 +804,73 @@ After generating both `manuscript.pdf` and `manuscript.docx`, the publisher engi
 
 Any divergence beyond tolerance is flagged in the report. Common causes: a figure was inserted in the LaTeX source but not exported to Word; a Word AutoCorrect changed a section title; a footnote in one is an endnote in the other. The report links each divergence to the source location for one-keystroke navigation.
 
-### 7.4 Template provenance (legal hygiene)
+### 7.5 Template provenance (legal hygiene)
 
-All templates derive from **publicly available submission guidelines and publisher-distributed class files** (e.g. Elsevier publishes `elsarticle.cls` on CTAN under LPPL; Frontiers publishes `frontiers.cls` on their website; Springer Nature publishes `sn-jnl.cls`). We embed only the open-license / publisher-distributed files and the publicly documented section / formatting rules — no copyrighted journal content (no sample articles, no editorial templates marked confidential).
+All bundled templates derive from **publicly available submission guidelines and publisher-distributed class files** (e.g. Elsevier publishes `elsarticle.cls` on CTAN under LPPL; Frontiers publishes `frontiers.cls` on their website; Springer Nature publishes `sn-jnl.cls`). We embed only the open-license / publisher-distributed files and the publicly documented section / formatting rules — no copyrighted journal content (no sample articles, no editorial templates marked confidential).
 
-For the `gost-generic` and `preprint` templates we author the class files in-house under MIT license.
+Where the publisher does not distribute an open class file (JAMA, DAN RAS, Uspekhi), the corresponding class is authored in-house under MIT license. We document this explicitly in the per-template `PROVENANCE.md`.
 
-A `templates/<venue>/PROVENANCE.md` file in each fetched bundle documents the upstream source URL, license, and the date the bundle was assembled. Re-validated quarterly via `vedix verify-templates`.
+Per-template `templates/<venue>/PROVENANCE.md` records: upstream class-file source URL, license, assembly date, and last quarterly re-validation date. CI job `verify-templates` re-validates against the upstream source URLs every release cycle.
 
-### 7.5 v3.1 + later venue additions (deferred)
+### 7.6 Extension point
 
-These venues are explicitly *deferred* to v3.1 + later releases. They are documented here so the v3.0 publisher engine is built with the right extension points:
+`vedix add-venue` is a documented schema for third-party contributors (and us, post-v3.0) to add venues without touching core. Each new venue ships as a directory with:
 
-- **AIP / APS** (`revtex4-2.cls`) — physics
-- **RSC** (Royal Society of Chemistry; `rsc.cls`)
-- **Cambridge University Press** (`cambridge7A.cls`)
-- **Oxford University Press** (varies by journal — `OUPMaths.cls` for math, etc.)
-- **BMJ**
-- **Lancet** family (under Elsevier umbrella but with stricter sub-template)
-- **JAMA Network**
-- Specific Russian venues beyond ГОСТ-generic: DAN RAS, Uspekhi Khimii / Fiziki, Vestnik MGU
-- **AAAS / Science** (no publicly distributed class file; would require reverse-engineering from author guidelines)
+```
+templates/<new_venue>/
+├── latex/<new_venue>.cls
+├── word/<new_venue>_<lang>.dotx   (× 7 languages)
+├── ai_disclosure.tex
+├── citation_style.json
+├── profile.json                   (section ordering, word limits, etc.)
+└── PROVENANCE.md
+```
 
-Each is added via the `vedix add-venue` plugin point — a documented schema that lets a third-party contributor add a venue with a class file, a Word template, a citation-style sub-key, and a per-journal JSON profile.
+The engine auto-discovers new directories under `templates/` at startup; no code change required to add a venue.
 
 ---
 
 ## 8. Commercial layer (BYOK SaaS)
 
-### 8.1 Product surface
+### 8.1 Product surface (everyone gets the full pipeline)
 
-The free-tier plugin (under Vedix branding) covers:
-- Python orchestrator + 9 MCPs + cross-host parity
-- Layer A retrieval-grounded register discriminator (Russian + English corpora bundled or fetched at first use)
+The free-tier plugin AND the free-tier Vedix.ai SaaS cover **the entire research pipeline**. Paid tiers buy **throughput and infrastructure**, not features. Free is the same Vedix the paying user has; paid is the same Vedix at higher rate.
+
+**Free tier (plugin + SaaS, identical functionality):**
+
+- Python orchestrator + **all 9 MCPs** (`ai-scientist`, `mempalace`, `openalex`, `semanticscholar`, `arxiv`, `biorxiv`, `pubmed`, `annas-mcp`, `fetcher`) — every MCP from §3 ships as Free infrastructure on the SaaS, so users who don't run a local Python stack still get the full search + memory + corpus surface.
+- Cross-host parity (Claude Code + Codex + Gemini CLI)
+- Layer A retrieval-grounded register discriminator (all 7 languages × 8 disciplines corpora bundled)
+- Layer B pre-trained register classifier (all 56 (`discipline`, `lang`) models — fetched once via `vedix model fetch` at install or first SaaS sign-in)
 - All 7 novel rigor tracks (§4)
 - All 6 net-new functionality tracks (§5)
-- **Publisher engine with all 14 venue families** (§7): 3 bundled at install (Overleaf preprint default, Nature, ГОСТ-generic) + 11 fetched on first use (Elsevier, Springer Nature, Taylor & Francis, Frontiers, Wiley, SAGE, PLOS, Cell Press, IEEE/ACM, ACS, MDPI). All free.
-- BYOK (user provides Anthropic / OpenAI / Gemini key)
+- **All 23 publisher templates bundled at install** + all 7 languages
+- All 7 languages first-class
+- BYOK across all supported providers (§3.2) — Anthropic, OpenAI, Google, OpenRouter, GigaChat, YandexGPT, DeepSeek, Qwen, Moonshot, Zhipu, Mistral, Cohere, self-hosted OpenAI-compatible
 
-The paid `vedix.ai` SaaS adds:
-- Layer B trained classifier (8 disciplines × 2 languages = 16 models pre-trained on our infrastructure; users on Free can train locally, but it costs them compute time)
-- Hosted job queue (run jobs without local compute; we manage retries, MCP availability)
-- Team shared MemPalace (multi-user research collaboration)
-- Audit-log retention (90 days cloud vs 7 days local)
-- Priority access to Pro-tier models (vendor-relationship optimizations: GPT-5.5 xhigh, Opus 4.7 at 64k thinking)
-- **Premium template maintenance** — the 14 free venue templates from §7 stay free; SaaS Pro adds (a) quarterly re-validation against publisher source-of-truth, (b) per-journal sub-profiles for ~50 top-cited journals across the 14 families, (c) priority new-venue requests, (d) Word-template polish for LaTeX↔Word parity at high-stakes submissions
+**Paid tiers buy throughput, not features.**
 
-### 8.2 Tier structure
+| Resource | Free | Solo | Lab | Institution |
+|---|---|---|---|---|
+| Hosted jobs per month | 2 (trial) | 20 | 200 | unlimited |
+| Concurrent jobs | 1 | 2 | 8 | per-contract |
+| MCP rate limit (queries/min per user) | 30 | 120 | 600 | per-contract |
+| Job time limit (wall clock) | 30 min | 90 min | 4 hours | per-contract |
+| Audit-log retention | 7 days | 30 days | 90 days | 1 year + on-prem option |
+| Team shared MemPalace | ✗ | ✗ | ✓ (5 seats) | ✓ (unlimited seats) |
+| SSO + RBAC | ✗ | ✗ | ✗ | ✓ |
+| SLA | best-effort | 99.0% | 99.5% | 99.9% + on-prem |
+| Priority bandwidth on model registry | ✗ | ✓ | ✓ | ✓ |
+| Quarterly template re-validation | ✓ (community) | ✓ (priority) | ✓ (priority) | ✓ (priority) |
 
-| Tier | RUB/mo | USD/mo | Limits |
+### 8.2 Tier structure (price points)
+
+| Tier | RUB/mo | USD/mo | Best for |
 |---|---|---|---|
-| **Free** | 0 ₽ | $0 | 100% of plugin features; 0 hosted jobs; BYOK only |
-| **Solo** | 1,290 ₽ | $14 | 20 hosted jobs / month; 1 user; pre-trained Layer B classifier (RU + EN); per-journal sub-profiles for top-cited venues |
-| **Lab** | 4,900 ₽ | $49 | 200 hosted jobs / month; 5 users; team shared MemPalace; all 14 venue families with priority maintenance |
-| **Institution** | from 24,900 ₽ | from $249 | Unlimited; SSO; on-prem option; SLA |
+| **Free** | 0 ₽ | $0 | Indie researcher; BYOK; 2 trial hosted jobs/month then run locally |
+| **Solo** | 1,290 ₽ | $14 | Single researcher who wants hosted-job convenience + 20 jobs/mo |
+| **Lab** | 4,900 ₽ | $49 | 5-person lab with shared MemPalace + 200 jobs/mo |
+| **Institution** | from 24,900 ₽ | from $249 | University department or company R&D — SSO, on-prem, SLA, custom MCP rate |
 
 ### 8.3 Payment infrastructure
 
@@ -605,20 +894,36 @@ This spec only covers the *engineering* surface of the commercial layer (entitle
 
 ## 9. Timeline + phasing
 
-Single major release. No incremental v2.2; v2.1.2 is the last v2.x.
+Single major release. No v3.1 — everything previously deferred is in v3.0. v2.1.2 is the last v2.x.
 
 | Block | Weeks | Tracks |
 |---|---|---|
-| **Bootstrapping** | 1 | Repo rename, package rename, MCP namespace rename, migration helper, deprecation stub |
-| **Novel rigor tracks** | 4 | §4.1 failure-mode learning, §4.2 citation graph, §4.3 counterfactual probe, §4.4 adversarial review, §4.5 semantic diff, §4.6 prereg replay, §4.7 provenance ledger |
-| **Net-new functionality** | 3 | §5.1 setup dialog, §5.2 numerical audit, §5.3 register discriminator (Layer A only), §5.4 rationale files, §5.5 codebase-aware, §5.6 reproducibility audit |
-| **Languages + publisher engine** | 4 | §6 RU first-class, §7 14 venue templates (3 bundled + 11 fetch-on-first-use) + Overleaf preprint default + LaTeX↔Word parity check |
-| **Trained classifier (Layer B)** | 3 | §5.3 corpus curation, single automated training script, distribution mechanism |
-| **Commercial layer** | 2 | `vedix.ai` SaaS scaffolding, ЮKassa + Stripe integration, tier-gating, hosted job queue |
-| **Polish + launch** | 2 | Habr post, vc.ru post, docs site, demo videos, smoke testing |
-| **Total** | **19 weeks** (~4.75 months) | full v3.0 release |
+| **B1. Bootstrapping + rebrand** | 1 | Repo rename (`vedix/vedix`), package rename, MCP namespace rename (`mcp__vedix__*`), data-dir rename (`~/.vedix/`), migration helper, deprecation stub |
+| **B2. BYOK multi-provider** | 3 | §3.2 abstraction layer + 13 provider adapters (Anthropic, OpenAI, Google, OpenRouter, Together, DeepSeek, Qwen, Moonshot, Zhipu, GigaChat, YandexGPT, Mistral, Cohere, self-hosted) + fallback chain + cost ledger |
+| **B3. Novel rigor tracks** | 5 | §4.1–4.7: failure-mode learning, citation graph analytics, counterfactual probe, adversarial review, semantic revision diff, prereg replay, provenance ledger + auto-disclosure |
+| **B4. Net-new functionality** | 3 | §5.1 setup dialog, §5.2 numerical audit, §5.4 rationale files, §5.5 codebase-aware, §5.6 reproducibility audit |
+| **B5. Hybrid register discriminator + dataset prep + training scripts** | 5 | §5.3 corpus curation (8 disciplines × 7 langs), Layer A retrieval, Layer B classifier, `prepare_corpus.py`, CPU + GPU training scripts, model registry distribution |
+| **B6. Languages (7 first-class)** | 4 | §6 EN/RU/ES/DE/FR/ZH/JA: citation backends, LaTeX font stacks, register lints, BibTeX preservation |
+| **B7. Publisher engine (23 venues, all bundled)** | 4 | §7 all 23 templates × 7 languages × Word parity, in-house classes for JAMA/DAN/Uspekhi, vedix-add-venue extension point |
+| **B8. Vedix.ai SaaS (all MCPs free)** | 4 | §8 FastAPI + Postgres + Redis backend, entitlement layer, ЮKassa + Stripe webhooks, hosted MCP fleet, job queue, cost ledger |
+| **B9. Web UI for orchestrator** | 3 | Browser-based job submission, live progress, manuscript preview, MemPalace browse |
+| **B10. IDE plugin distribution** | 3 | VS Code extension + JetBrains plugin (IntelliJ/PyCharm/CLion family) that wrap the CLI |
+| **B11. Federated MemPalace + real-time collab + preprint auto-submit** | 4 | Cross-org shared memory + CRDT-backed real-time collab + arXiv / bioRxiv / OSF auto-submit |
+| **B12. Polish + launch** | 2 | docs.vedix.ai site, demo videos, smoke testing, Habr / vc.ru / HN posts (per marketing brief) |
+| **Total (serial)** | **41 weeks** (~10 months) | full v3.0 release |
 
-Parallelizable down to ~13 weeks with 2 implementers; ~9 weeks with 3.
+Parallelizable down to ~22 weeks with 2 implementers; ~16 weeks with 3 implementers.
+
+Block dependencies:
+- B1 → all others (bootstrap is the foundation)
+- B2 unblocks B3, B5 (rigor tracks + classifier training need provider routing)
+- B3 + B4 can parallelize after B1, B2
+- B5 (training) requires B6 (corpus prep depends on the 7 languages)
+- B7 requires B6 (Word templates are per-language)
+- B8 requires B2 + B3 + B4 + B5 (SaaS hosts the full pipeline)
+- B9 + B10 require B8 (UI + IDE plugins talk to the SaaS API)
+- B11 requires B8
+- B12 is last
 
 ---
 
@@ -631,26 +936,25 @@ To unblock v3.0:
 | 1 | Confirm name: **Vedix** (recommended), Knowlex, Verax, Quaero, or other? | Vedix |
 | 2 | Form-driven setup: always-on or `--setup` opt-in? | always-on |
 | 3 | Rationale files: always-written or `--explain` opt-in? | always-written |
-| 4 | Layer B trained classifier: train locally on user's hardware, or bundle pre-trained models in Pro-tier? | both — Free trains locally, Pro gets pre-trained |
-| 5 | Counterfactual citation probe: run on every citation (default) or only top-cited (≥3 reuses; cheaper)? | every citation (~3-5 min for 180 cites) |
-| 6 | Adversarial review: 2 passes per reviewer (default) or 3 passes (steelman / break / re-steelman)? | 2 passes |
-| 7 | Pre-registration: hard-gate the experiment (must commit to prereg before running) or advisory (warn if prereg missing)? | hard-gate |
-| 8 | Solo tier price: 1,290 ₽ or lower (990 ₽)? | 1,290 ₽ |
-| 9 | Slash command: `/vedix <topic>` only, or both `/vedix` + `/research` alias? | both |
-| 10 | Russian publisher template scope: «ГОСТ-generic» only (covers most ВАК journals) or add specific venues (DAN RAS, Uspekhi)? | gost-generic only at v3.0; specific RU venues at v3.1 |
+| 4 | Counterfactual citation probe: run on every citation (default) or only top-cited (≥3 reuses; cheaper)? | every citation (~3-5 min for 180 cites) |
+| 5 | Adversarial review: 2 passes per reviewer (default) or 3 passes (steelman / break / re-steelman)? | 2 passes |
+| 6 | Pre-registration: hard-gate the experiment (must commit to prereg before running) or advisory (warn if prereg missing)? | hard-gate |
+| 7 | Solo tier price: 1,290 ₽ or lower (990 ₽)? | 1,290 ₽ |
+| 8 | Slash command: `/vedix <topic>` only, or both `/vedix` + `/research` alias? | both |
+| 9 | Default BYOK provider chain when user has no key set: Anthropic-only / Anthropic→OpenAI→Google / open-source-only (DeepSeek→Qwen)? | Anthropic→OpenAI→Google (graceful degradation to cheapest available) |
+| 10 | Web UI shipping as part of v3.0 launch or 4 weeks after as v3.0.1? | with v3.0 launch (it's in scope per "everything in v3") |
 
 All ten are defaults-locked. Pick the subset you want to override; the rest stay as recommended.
 
 ---
 
-## 11. Out of scope (v3.1 and later)
+## 11. Out of scope (post-v3.0 only)
 
-- Multilingual expansion beyond EN + RU (Spanish, German, French, Chinese, Japanese)
-- Web UI for the orchestrator
-- VS Code / JetBrains plugin distribution
-- Hosted LLM inference (we stay BYOK)
-- Specific RU publisher templates beyond `gost-generic` (DAN RAS, Uspekhi, specific institutional templates)
-- Mobile app
-- Cross-organization shared MemPalace / federated knowledge graph
-- Pre-print server integration (auto-submit to arXiv / bioRxiv / OSF on completion)
-- Real-time collaboration in the orchestrator (multiple authors editing concurrently)
+Everything previously deferred to v3.1 was absorbed into v3.0. The only items that remain explicitly out of scope:
+
+- **Hosted LLM inference** — we stay BYOK. Vedix never sells LLM tokens; users always own their LLM-provider relationships. This is a positioning choice, not a feature gap.
+- **Mobile app** — research workflow is laptop-class; mobile is a different product surface.
+- **Traditional Chinese, Korean, Arabic, Hindi, Portuguese, Italian** — explicitly out of v3.0 language scope; can be added via `vedix add-language` plugin point post-launch.
+- **AAAS / Science** publisher template — no publicly distributed class file from the publisher; would require reverse-engineering against the author-guidelines PDF. Out of v3.0 to preserve provenance hygiene.
+- **Hosted code-execution sandbox for experiments** — experiments still run on the user's local machine. Hosted sandbox runs are a hypothetical future tier that requires hardened sandboxing infrastructure and isn't in v3.0.
+- **Auto-billing of LLM token costs** — we don't markup or rebill LLM tokens. BYOK only.
