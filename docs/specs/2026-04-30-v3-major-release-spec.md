@@ -6,6 +6,12 @@
 **Naming:** v3.0 ships under a new commercial name (default recommendation: **Vedix**; see §2). The `ai-scientist-plugin` name is retired at v3.0 cut.
 **Independence constraint:** zero copying from `Imbad0202/academic-research-skills`. Where they have solved a problem we also need to solve (integrity gates, claim audit, reviewer anti-anchoring, revision tracking, statistical fallacy detection, AI disclosure), we ship **our own clean-room designs** that are structurally and methodologically different. The novel approaches in §4 are the result.
 
+**Companion documents (commercialization is tracked separately):**
+- `docs/marketing/2026-05-20-vedix-marketing-brief.md` — **standalone marketing-analysis track**: idea, attitude, core problem, ICP, JTBD, positioning, channels, KPIs. Hand to a marketing analyst.
+- `docs/specs/2026-04-30-v3-commercial-rebrand-and-monetization.md` — naming + payment-infrastructure rationale.
+
+§8 of this spec stays focused on the engineering surface of the commercial layer (entitlement gating, job-queue infrastructure, tier limits as code). The *go-to-market* surface lives in the marketing brief.
+
 ---
 
 ## 1. Goals + non-goals
@@ -451,31 +457,100 @@ For experimental papers, after Phase 8 (compile):
 
 ## 7. Publisher template engine
 
-`publisher_engine.py` provides LaTeX + Word output parity for 6 venues at v3.0:
+`publisher_engine.py` provides LaTeX + Word output parity across **14 venue families** at v3.0, plus a publisher-neutral Overleaf-default preprint template for arXiv / OSF / SSRN / institutional repository use.
 
-| Venue | LaTeX template | Word template | Citation style | Region |
-|---|---|---|---|---|
-| Nature / Nature family | `templates/latex/nature/` | `templates/word/nature.dotx` | Nature | global |
-| Cell Press | `templates/latex/cell/` | `templates/word/cell.dotx` | Cell | global |
-| IEEE / ACM | `templates/latex/ieee/` | `templates/word/ieee.dotx` | IEEE | global |
-| ACS journals | `templates/latex/acs/` | `templates/word/acs.dotx` | ACS | global |
-| MDPI | `templates/latex/mdpi/` | `templates/word/mdpi.dotx` | MDPI | global |
-| ВАК + ДАН generic Russian | `templates/latex/gost-generic/` | `templates/word/gost-generic.dotx` | ГОСТ-7.0.5 | RU |
+The engine is organized by **publisher family** rather than per-journal because most modern publishers ship a single LaTeX class that covers hundreds of their journals (e.g. `elsarticle.cls` covers > 2,000 Elsevier titles). Per-journal variants are layered on top via small JSON profiles that override section ordering, word limits, and reference-style sub-keys.
 
-Parity check: after generating both `manuscript.pdf` and `manuscript.docx`, the publisher engine compares them along:
+### 7.1 v3.0 venue catalog
+
+| # | Venue family | Publisher | LaTeX class | Word template | Citation style | Region | Tier |
+|---|---|---|---|---|---|---|---|
+| 1 | **Overleaf preprint default** (`preprint`) | publisher-neutral | `article.cls` 11pt single-column + `biblatex` (numeric-comp) | `preprint.dotx` | numeric-comp (arXiv-friendly) | global | **bundled** |
+| 2 | **Nature** (Nature, Nat Comms, Nat Methods, Nat Mach Intell) | Springer Nature flagship | `nature.cls` (single-column variant) | `nature.dotx` | Nature | global | bundled |
+| 3 | **Elsevier** (Cell Reports Med, Lancet*, Trends in *, NeuroImage, etc.) | Elsevier | `elsarticle.cls` (single or double column) | `elsevier.dotx` | Elsevier numeric (`model3-num-names.bst`) | global | fetch-on-first-use |
+| 4 | **Springer Nature journals** (`sn-jnl`) | Springer Nature | `sn-jnl.cls` (Springer's universal class) | `sn-jnl.dotx` | Springer numeric | global | fetch-on-first-use |
+| 5 | **Taylor & Francis** | Taylor & Francis | `interact.cls` | `taylor-francis.dotx` | T&F numeric or author-date | global | fetch-on-first-use |
+| 6 | **Frontiers** (Frontiers in *) | Frontiers Media | `frontiers.cls` (their official class) | `frontiers.dotx` | Frontiers Reference Style (Vancouver-like) | global; open access | fetch-on-first-use |
+| 7 | **Wiley** | Wiley | `WileyNJD-v2.cls` | `wiley.dotx` | Wiley numeric | global | fetch-on-first-use |
+| 8 | **SAGE** | SAGE Publications | `sagej.cls` | `sage.dotx` | SAGE author-date or Vancouver | global; social-sci heavy | fetch-on-first-use |
+| 9 | **PLOS** (PLOS One, PLOS Biology, PLOS Comp Biol) | Public Library of Science | `plos2015.cls` (current) | `plos.dotx` | Vancouver | global; open access | fetch-on-first-use |
+| 10 | **Cell Press** (Cell, Neuron, Cell Reports — not the Elsevier sub-imprints) | Cell Press (Elsevier brand) | `cell.cls` (Cell-specific variant) | `cell.dotx` | Cell | global | fetch-on-first-use |
+| 11 | **IEEE / ACM** | IEEE + ACM | `IEEEtran.cls` and `acmart.cls` (two sub-templates under one venue alias) | `ieee.dotx`, `acm.dotx` | IEEE, ACM (numeric) | global; CS / EE | fetch-on-first-use |
+| 12 | **ACS** | American Chemical Society | `achemso.cls` | `acs.dotx` | ACS | global; chemistry | fetch-on-first-use |
+| 13 | **MDPI** | MDPI | `mdpi.cls` | `mdpi.dotx` | MDPI numeric | global; open access | fetch-on-first-use |
+| 14 | **ГОСТ-generic** (ВАК-perechen' Russian) | publisher-neutral, ГОСТ-compliant | `gost-article.cls` + `T2A` fontenc | `gost-generic.dotx` | ГОСТ-7.0.5-2008 | RU | **bundled** |
+
+**Bundled at install time (small footprint):** entries 1, 2, 14 — the Overleaf preprint default, Nature, and ГОСТ-generic. Total bundled-template payload < 4 MB.
+
+**Fetch-on-first-use:** entries 3–13. Triggered by `vedix fetch-venue <name>` or implicitly on first `--venue <name>` invocation. Each template family ~ 1–3 MB. Cached under `~/.vedix/templates/<venue>/` for offline reuse.
+
+### 7.2 Overleaf preprint default — design rationale
+
+The `preprint` template is the **publisher-agnostic single-column default** for use when the author has not yet picked a target venue, is preparing an arXiv / bioRxiv / OSF deposit, or is iterating before submission:
+
+- **Class:** standard `article.cls` (LaTeX2e core; no proprietary class file).
+- **Layout:** 11pt, single-column, A4 (with US-letter switch flag), 1-inch margins.
+- **Fonts:** Latin Modern Roman (default) + `lmodern` package. Russian variant uses `Noto Serif` + `T2A` fontenc.
+- **Bibliography:** `biblatex` with `numeric-comp` style (arXiv-friendly) + `biber` backend; switch to `authoryear` via `--bib-style authoryear`.
+- **Section structure:** abstract, keywords, 1 Introduction, 2 Related work, 3 Methods, 4 Results, 5 Discussion, 6 Conclusion, References, Appendix (in that order; reorderable).
+- **No publisher branding.** No logo, no journal name, no copyright footer.
+- **Word equivalent.** The `preprint.dotx` mirrors the same layout for Word users; both should render to PDF with identical section ordering, equation count, figure count, and reference count.
+
+This is the template Vedix uses **by default** when the user does not pass `--venue`. It's also the template recommended for first-draft iteration before the author commits to a target journal.
+
+CLI examples:
+
+```
+/vedix new "Effect of solvent polarity on Diels-Alder kinetics"
+# defaults to --venue preprint
+
+/vedix switch venue elsevier
+# fetches elsarticle.cls on first use, re-typesets
+
+/vedix switch venue elsevier:cell-reports-medicine
+# uses elsarticle.cls + the Cell Reports Medicine per-journal JSON profile
+# (section ordering, word limits, reference style sub-key)
+
+/vedix switch venue gost-generic
+# Russian, ГОСТ-7.0.5
+```
+
+### 7.3 Parity check (LaTeX ↔ Word)
+
+After generating both `manuscript.pdf` and `manuscript.docx`, the publisher engine emits `parity_report.json` comparing them along:
+
 - Section order
-- Section title text
-- Number of equations, figures, tables
+- Section title text (exact match, normalized whitespace)
+- Number of equations, figures, tables, supplementary items
 - Reference count
-- Word count (±2%)
+- Total word count (±2 % tolerance)
+- Citation-call-out count (in-text citations match reference list cardinality)
 
-Any divergence is flagged in `parity_report.json` for the author to resolve.
+Any divergence beyond tolerance is flagged in the report. Common causes: a figure was inserted in the LaTeX source but not exported to Word; a Word AutoCorrect changed a section title; a footnote in one is an endnote in the other. The report links each divergence to the source location for one-keystroke navigation.
 
-CLI: `--venue nature` / `--venue gost-generic` (and so on); default per article-type.
+### 7.4 Template provenance (legal hygiene)
 
-Templates derived from public submission guidelines (no copyrighted content embedded). The `gost-generic` template is generic enough to fit most ВАК-perechen' journals; venue-specific RU journals (DAN RAS, Uspekhi) come later via the `vedix add-venue` plugin point.
+All templates derive from **publicly available submission guidelines and publisher-distributed class files** (e.g. Elsevier publishes `elsarticle.cls` on CTAN under LPPL; Frontiers publishes `frontiers.cls` on their website; Springer Nature publishes `sn-jnl.cls`). We embed only the open-license / publisher-distributed files and the publicly documented section / formatting rules — no copyrighted journal content (no sample articles, no editorial templates marked confidential).
 
-Additional v3.1 venues (deferred): Lancet, BMJ, Springer Nature, RSC, Elsevier flagship journals.
+For the `gost-generic` and `preprint` templates we author the class files in-house under MIT license.
+
+A `templates/<venue>/PROVENANCE.md` file in each fetched bundle documents the upstream source URL, license, and the date the bundle was assembled. Re-validated quarterly via `vedix verify-templates`.
+
+### 7.5 v3.1 + later venue additions (deferred)
+
+These venues are explicitly *deferred* to v3.1 + later releases. They are documented here so the v3.0 publisher engine is built with the right extension points:
+
+- **AIP / APS** (`revtex4-2.cls`) — physics
+- **RSC** (Royal Society of Chemistry; `rsc.cls`)
+- **Cambridge University Press** (`cambridge7A.cls`)
+- **Oxford University Press** (varies by journal — `OUPMaths.cls` for math, etc.)
+- **BMJ**
+- **Lancet** family (under Elsevier umbrella but with stricter sub-template)
+- **JAMA Network**
+- Specific Russian venues beyond ГОСТ-generic: DAN RAS, Uspekhi Khimii / Fiziki, Vestnik MGU
+- **AAAS / Science** (no publicly distributed class file; would require reverse-engineering from author guidelines)
+
+Each is added via the `vedix add-venue` plugin point — a documented schema that lets a third-party contributor add a venue with a class file, a Word template, a citation-style sub-key, and a per-journal JSON profile.
 
 ---
 
@@ -486,9 +561,9 @@ Additional v3.1 venues (deferred): Lancet, BMJ, Springer Nature, RSC, Elsevier f
 The free-tier plugin (under Vedix branding) covers:
 - Python orchestrator + 9 MCPs + cross-host parity
 - Layer A retrieval-grounded register discriminator (Russian + English corpora bundled or fetched at first use)
-- All 6 novel rigor tracks (§4)
-- All 5 net-new functionality tracks (§5)
-- Publisher engine with 2 templates (Nature + ГОСТ-generic) bundled; other 4 fetched on first use
+- All 7 novel rigor tracks (§4)
+- All 6 net-new functionality tracks (§5)
+- **Publisher engine with all 14 venue families** (§7): 3 bundled at install (Overleaf preprint default, Nature, ГОСТ-generic) + 11 fetched on first use (Elsevier, Springer Nature, Taylor & Francis, Frontiers, Wiley, SAGE, PLOS, Cell Press, IEEE/ACM, ACS, MDPI). All free.
 - BYOK (user provides Anthropic / OpenAI / Gemini key)
 
 The paid `vedix.ai` SaaS adds:
@@ -497,15 +572,15 @@ The paid `vedix.ai` SaaS adds:
 - Team shared MemPalace (multi-user research collaboration)
 - Audit-log retention (90 days cloud vs 7 days local)
 - Priority access to Pro-tier models (vendor-relationship optimizations: GPT-5.5 xhigh, Opus 4.7 at 64k thinking)
-- Per-venue paid template packs (more publishers as they're added; the 6 core stay free)
+- **Premium template maintenance** — the 14 free venue templates from §7 stay free; SaaS Pro adds (a) quarterly re-validation against publisher source-of-truth, (b) per-journal sub-profiles for ~50 top-cited journals across the 14 families, (c) priority new-venue requests, (d) Word-template polish for LaTeX↔Word parity at high-stakes submissions
 
 ### 8.2 Tier structure
 
 | Tier | RUB/mo | USD/mo | Limits |
 |---|---|---|---|
 | **Free** | 0 ₽ | $0 | 100% of plugin features; 0 hosted jobs; BYOK only |
-| **Solo** | 1,290 ₽ | $14 | 20 hosted jobs / month; 1 user; Layer B classifier (RU + EN); 6 publisher templates |
-| **Lab** | 4,900 ₽ | $49 | 200 hosted jobs / month; 5 users; team shared MemPalace; all publisher templates |
+| **Solo** | 1,290 ₽ | $14 | 20 hosted jobs / month; 1 user; pre-trained Layer B classifier (RU + EN); per-journal sub-profiles for top-cited venues |
+| **Lab** | 4,900 ₽ | $49 | 200 hosted jobs / month; 5 users; team shared MemPalace; all 14 venue families with priority maintenance |
 | **Institution** | from 24,900 ₽ | from $249 | Unlimited; SSO; on-prem option; SLA |
 
 ### 8.3 Payment infrastructure
@@ -520,21 +595,11 @@ The paid `vedix.ai` SaaS adds:
 
 Legal entity: **ИП-USN-6%** registered through Tinkoff (one-day online registration). Suitable up to 60M ₽/year revenue. Above that, migrate to ООО.
 
-### 8.4 Marketing plan (Russia)
+### 8.4 Marketing — moved out of this spec
 
-- **Habr.com** long-form release post (Russian) — technical deep-dive on the cross-host pipeline, including a ГОСТ-output demo
-- **vc.ru** startup-announcement post for the v3.0 launch
-- **Telegram channels**: `@nplusonemag`, `@neural_machine`, `@datasciencegroup`, `@papers_we_love_rus`
-- **University outreach**: HSE / MIPT / Skoltech direct seminar invitations
-- **Habr series**: "Building an autonomous research pipeline" — 6 posts, one per subsystem (DOI gate, anti-LLMish lint, Codex spawn_agent waves, register discriminator, etc.)
-- **YouTube channel**: weekly research-job walkthroughs
+Go-to-market — positioning, attitude, ICP, JTBD, channels (Habr / vc.ru / HN / arXiv methods paper / university seminars), funnel hypothesis, KPI framework, pricing-test instrumentation — lives in **`docs/marketing/2026-05-20-vedix-marketing-brief.md`**.
 
-### 8.5 Marketing plan (global)
-
-- **Hacker News** Show HN post on v3.0 launch
-- **Twitter/X** thread with the same content as the Habr post (English)
-- **arXiv blog post** (we publish a methods-paper on the pipeline itself, hosted on arXiv)
-- **NeurIPS / ICML demo track** submissions for the 2026 cycle
+This spec only covers the *engineering* surface of the commercial layer (entitlement gating, job-queue infrastructure, tier limits encoded in `entitlements.py`, payment-webhook handlers). The marketing brief is the source of truth for *how customers find Vedix*; this spec is the source of truth for *how the SaaS is built*.
 
 ---
 
@@ -547,13 +612,13 @@ Single major release. No incremental v2.2; v2.1.2 is the last v2.x.
 | **Bootstrapping** | 1 | Repo rename, package rename, MCP namespace rename, migration helper, deprecation stub |
 | **Novel rigor tracks** | 4 | §4.1 failure-mode learning, §4.2 citation graph, §4.3 counterfactual probe, §4.4 adversarial review, §4.5 semantic diff, §4.6 prereg replay, §4.7 provenance ledger |
 | **Net-new functionality** | 3 | §5.1 setup dialog, §5.2 numerical audit, §5.3 register discriminator (Layer A only), §5.4 rationale files, §5.5 codebase-aware, §5.6 reproducibility audit |
-| **Languages + publisher engine** | 3 | §6 RU first-class, §7 6 venue templates with parity check |
+| **Languages + publisher engine** | 4 | §6 RU first-class, §7 14 venue templates (3 bundled + 11 fetch-on-first-use) + Overleaf preprint default + LaTeX↔Word parity check |
 | **Trained classifier (Layer B)** | 3 | §5.3 corpus curation, single automated training script, distribution mechanism |
 | **Commercial layer** | 2 | `vedix.ai` SaaS scaffolding, ЮKassa + Stripe integration, tier-gating, hosted job queue |
 | **Polish + launch** | 2 | Habr post, vc.ru post, docs site, demo videos, smoke testing |
-| **Total** | **18 weeks** (~4.5 months) | full v3.0 release |
+| **Total** | **19 weeks** (~4.75 months) | full v3.0 release |
 
-Parallelizable down to ~12 weeks with 2 implementers; ~9 weeks with 3.
+Parallelizable down to ~13 weeks with 2 implementers; ~9 weeks with 3.
 
 ---
 
