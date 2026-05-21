@@ -358,3 +358,127 @@ def render(
         "docx": docx_out,
         "tex": tex_out,
     }
+
+
+# ---------------------------------------------------------------------------
+# LaTeX↔Word parity check (Block 7 Task 4).
+# ---------------------------------------------------------------------------
+
+
+def _count_artifacts_in_text(text: str) -> dict:
+    """Count sections / equations / figures / tables / references / citations.
+
+    Pure-text heuristic — works on both pandoc PDF/DOCX extractions.
+    """
+    import re
+
+    return {
+        "sections": re.findall(
+            r"(?:^|\n)([1-9]\.?\s+[A-Z][^\n]{2,80})", text
+        ),
+        "n_equations": len(
+            re.findall(
+                r"\\begin\{equation\}|^\([0-9]+\)\s*$",
+                text,
+                re.MULTILINE,
+            )
+        ),
+        "n_figures": len(re.findall(r"Figure\s+\d+", text)),
+        "n_tables": len(re.findall(r"Table\s+\d+", text)),
+        "n_references": len(
+            re.findall(r"^\[\d+\]\s", text, re.MULTILINE)
+        ),
+        "word_count": len(text.split()),
+        "n_citations": len(re.findall(r"\[\d+\]", text)),
+    }
+
+
+def _inspect_pdf(pdf: Path) -> dict:
+    """Best-effort extract section headings + artifact counts from a PDF."""
+    from pdfminer.high_level import extract_text
+
+    text = extract_text(str(pdf))
+    return _count_artifacts_in_text(text)
+
+
+def _inspect_docx(docx: Path) -> dict:
+    """Extract section headings (paragraphs styled ``Heading*``) + counts."""
+    from docx import Document
+
+    doc = Document(str(docx))
+    text = "\n".join(p.text for p in doc.paragraphs)
+    sections = [
+        p.text
+        for p in doc.paragraphs
+        if p.style is not None
+        and p.style.name is not None
+        and p.style.name.startswith("Heading")
+    ]
+    return {**_count_artifacts_in_text(text), "sections": sections}
+
+
+def check_parity(
+    *,
+    pdf: Path,
+    docx: Path,
+    word_tolerance_pct: float = 2.0,
+) -> dict:
+    """Compare PDF + DOCX renders of the same manuscript for drift.
+
+    Args:
+        pdf: Path to ``manuscript.pdf``.
+        docx: Path to ``manuscript.docx``.
+        word_tolerance_pct: Allowed |Δword-count| as a percentage of the
+            larger document; default 2 %.
+
+    Returns:
+        ``{"status": "ok"|"drift", "divergences": [...], "pdf_data": {...},
+        "docx_data": {...}}``. Each divergence is a dict with a ``"kind"``
+        key (``"section_count"``, ``"n_equations"``, ``"n_figures"``,
+        ``"n_tables"``, ``"n_references"``, ``"n_citations"``,
+        ``"word_count"``).
+    """
+    pdf_data = _inspect_pdf(pdf)
+    docx_data = _inspect_docx(docx)
+    divergences: list[dict] = []
+
+    if len(pdf_data["sections"]) != len(docx_data["sections"]):
+        divergences.append(
+            {
+                "kind": "section_count",
+                "pdf": len(pdf_data["sections"]),
+                "docx": len(docx_data["sections"]),
+            }
+        )
+
+    for k in (
+        "n_equations",
+        "n_figures",
+        "n_tables",
+        "n_references",
+        "n_citations",
+    ):
+        if pdf_data[k] != docx_data[k]:
+            divergences.append(
+                {"kind": k, "pdf": pdf_data[k], "docx": docx_data[k]}
+            )
+
+    wc_pdf, wc_docx = pdf_data["word_count"], docx_data["word_count"]
+    drift_pct = abs(wc_pdf - wc_docx) / max(wc_pdf, wc_docx, 1) * 100
+    if drift_pct > word_tolerance_pct:
+        divergences.append(
+            {
+                "kind": "word_count",
+                "pdf": wc_pdf,
+                "docx": wc_docx,
+                "drift_pct": round(drift_pct, 2),
+                "tolerance_pct": word_tolerance_pct,
+            }
+        )
+
+    return {
+        "status": "ok" if not divergences else "drift",
+        "divergences": divergences,
+        "pdf_data": pdf_data,
+        "docx_data": docx_data,
+    }
