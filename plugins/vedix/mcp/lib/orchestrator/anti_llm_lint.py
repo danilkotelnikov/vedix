@@ -2,10 +2,17 @@
 
 Closes review-doc + spec §6.1. Sources: Liang et al. 2024 (PubMed 15M
 abstracts), ICLR 2024 peer-review excess-vocabulary study.
+
+Locale-aware extension (B6, §6): :func:`lint_paragraph` reads the
+per-language ``register_lints`` blacklist (paragraph starters, banned
+words, em-dash budget) from :mod:`.locale.router` and emits a
+language-tagged ``{"violations": [...], "language": code}`` report.
 """
 from __future__ import annotations
 import re
 from typing import Optional
+
+from .locale.router import get_locale
 
 # Tier 1 — measured ≥9× excess in post-ChatGPT corpora; block on first hit.
 TIER1_BLACKLIST = [
@@ -296,3 +303,67 @@ def audit_claims(text: str) -> dict:
                     "window_excerpt": window[:300],
                 })
     return {"clarification_requests": requests}
+
+
+# --- B6 (§6): locale-aware paragraph lint ----------------------------------
+
+
+def lint_paragraph(text: str, *, language: str = "en") -> dict:
+    """Lint a single paragraph against the per-locale ``register_lints``.
+
+    Parameters
+    ----------
+    text:
+        Paragraph text. Leading/trailing whitespace is stripped before
+        the paragraph-start match is checked.
+    language:
+        ISO 639-1 code. Resolves via :func:`locale.router.get_locale`;
+        an unsupported code propagates ``KeyError`` (no silent fallback).
+
+    Returns
+    -------
+    dict
+        ``{"violations": [...], "language": code}``. Each violation is
+        ``{"type": <kind>, "term": <matched-term>}`` where ``kind`` is
+        one of ``"paragraph_start"``, ``"blacklist_word"``, or
+        ``"em_dash_overuse"``.
+
+    Notes
+    -----
+    This is the paragraph-granularity counterpart to :func:`lint_text`,
+    which scans manuscript-wide and is anchored to the English Tier
+    1/2/3 lists. Use :func:`lint_paragraph` inside the per-section
+    reflection loops to enforce language-appropriate prose register.
+    """
+    locale = get_locale(language)
+    lints = locale.register_lints
+    violations: list[dict] = []
+    stripped = text.strip()
+    lowered_text = text.lower()
+
+    # Paragraph-start blacklist (anchored at start, case-sensitive to
+    # respect e.g. "Furthermore" vs in-sentence "furthermore").
+    for prefix in lints.get("blacklist_paragraph_start", []):
+        if stripped.startswith(prefix):
+            violations.append({"type": "paragraph_start", "term": prefix})
+
+    # Word/phrase blacklist (case-insensitive substring).
+    for term in lints.get("blacklist_words", []):
+        if term.lower() in lowered_text:
+            violations.append({"type": "blacklist_word", "term": term})
+    for term in lints.get("blacklist_phrases", []):
+        if term.lower() in lowered_text:
+            violations.append({"type": "blacklist_phrase", "term": term})
+
+    # Em-dash density vs the locale's budget.
+    em_dashes = text.count("—") + text.count("–")
+    n_words = max(1, len(text.split()))
+    budget = lints.get("max_em_dashes_per_1000_words", 2)
+    if em_dashes / n_words * 1000 > budget:
+        violations.append({
+            "type": "em_dash_overuse",
+            "count": em_dashes,
+            "budget_per_1000_words": budget,
+        })
+
+    return {"violations": violations, "language": language}

@@ -28,6 +28,7 @@ from .article_type import classify_article_type, phase_order_for, NON_APPLICABLE
 from .cross_validator import validate_corpus
 from .anti_llm_lint import lint_text, audit_claims
 from .reviewer_ledger import build_reviewer_dispatch
+from .locale.router import get_locale
 from . import (
     failure_mode_learning, citation_graph, counterfactual_probe,
     adversarial_review, semantic_revision_diff, prereg_replay,
@@ -62,6 +63,8 @@ class Pipeline:
         plugin_palace: Any = None,
         project_palace: Any = None,
         token_tracker: Optional[TokenTracker] = None,
+        language: str = "en",
+        workspace: Optional[Path] = None,
     ):
         self.dispatcher = dispatcher
         self.evaluator = evaluator
@@ -69,6 +72,17 @@ class Pipeline:
         self.plugin_palace = plugin_palace
         self.project_palace = project_palace
         self.tokens = token_tracker or TokenTracker()
+        # --- B6 (§6): locale-aware engine + lint policy ----------------
+        self.language = language
+        self.locale = get_locale(language)
+        # Pipeline.latex_engine is derived from locale; CJK -> xelatex,
+        # Latin/Cyrillic -> pdflatex. Phase 5/8 callers may consult.
+        self.latex_engine = self.locale.latex_engine
+        # Optional ad-hoc workspace (used by light integration tests
+        # that don't run phase_0_init). Real runs set this via
+        # phase_0_init -> state.output_dir.
+        self.workspace = workspace
+        # ----------------------------------------------------------------
         self.state = PipelineState()
         self.checkpoints: Optional[CheckpointManager] = None
         self._hooks: dict[str, Callable] = {}
