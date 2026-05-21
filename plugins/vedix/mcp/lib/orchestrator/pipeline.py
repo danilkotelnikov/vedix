@@ -28,6 +28,11 @@ from .article_type import classify_article_type, phase_order_for, NON_APPLICABLE
 from .cross_validator import validate_corpus
 from .anti_llm_lint import lint_text, audit_claims
 from .reviewer_ledger import build_reviewer_dispatch
+from . import (
+    failure_mode_learning, citation_graph, counterfactual_probe,
+    adversarial_review, semantic_revision_diff, prereg_replay,
+    provenance_ledger,
+)
 
 
 @dataclass
@@ -66,6 +71,25 @@ class Pipeline:
         self.tokens = token_tracker or TokenTracker()
         self.state = PipelineState()
         self.checkpoints: Optional[CheckpointManager] = None
+        self._hooks: dict[str, Callable] = {}
+        self._register_rigor_hooks()
+
+    # --- v3.0.0 Block 3: rigor-track hook registry ----------------------
+    def _register_rigor_hooks(self) -> None:
+        """Wire the 7 §4 rigor tracks into the pipeline's hook registry."""
+        self._hooks["failure_mode_check"] = failure_mode_learning.load_active_modes
+        self._hooks["citation_graph_analysis"] = citation_graph.analyze
+        self._hooks["counterfactual_probe"] = counterfactual_probe.probe_all
+        self._hooks["adversarial_review"] = adversarial_review.review_with_stances
+        self._hooks["semantic_revision_diff"] = semantic_revision_diff.diff_revisions
+        self._hooks["prereg_gate"] = prereg_replay.gate_experiment
+        self._hooks["prereg_audit"] = prereg_replay.audit_results
+        self._hooks["provenance_record"] = lambda *a, **kw: None  # configured per-phase
+        self._hooks["disclosure_generate"] = provenance_ledger.generate_disclosure
+
+    def list_hooks(self) -> set[str]:
+        """Names of all registered hooks."""
+        return set(self._hooks)
 
     # --- Phase 0 ---------------------------------------------------------
     def phase_0_init(self, *, topic: str, domain: str, output_dir: Path) -> None:
