@@ -26,6 +26,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from .models import shared_palace as _shared_palace  # noqa: F401
     from .models import subscription as _subscription  # noqa: F401
     from .models import user as _user  # noqa: F401
+    from .models import yjs_doc as _yjs_doc  # noqa: F401
 
     if settings.env in ("dev", "test"):
         async with db_mod.engine.begin() as conn:

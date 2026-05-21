@@ -1,6 +1,6 @@
 [project]
 name = "vedix-saas"
-version = "3.0.0-block8"
+version = "3.0.0-block11"
 description = "vedix.ai SaaS — FastAPI wrapper over the Vedix orchestrator with all-MCPs-free entitlements."
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -20,6 +20,9 @@ dependencies = [
     "alembic>=1.13",
     "prometheus-fastapi-instrumentator>=7.0",
     "sentry-sdk>=2.0",
+    # Block 11: federated MemPalace + real-time collab
+    "websockets>=12",
+    "y-py>=0.6 ; platform_python_implementation == 'CPython'",
 ]
 
 [project.optional-dependencies]
