@@ -21,3 +21,16 @@ pyalex>=0.17
 bibtexparser>=1.4,<3.0
 rapidfuzz>=3.0
 httpx>=0.27
+
+# v3.0.0 Block 2 — BYOK multi-provider. Each adapter lazily imports its SDK,
+# so installing only the SDKs you actually configure is fine. Tests gate on
+# `pytest.importorskip(...)` when an SDK is absent.
+anthropic>=0.40
+openai>=1.55
+google-generativeai>=0.8
+dashscope>=1.20
+gigachat>=0.1.30
+mistralai>=1.2
+cohere>=5.13
+pytest-asyncio>=0.24
+respx>=0.21
