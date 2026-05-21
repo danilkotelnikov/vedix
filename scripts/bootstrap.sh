@@ -277,6 +277,14 @@ for v in SEMANTIC_SCHOLAR_KEY ANNAS_BASE_URL ANNAS_DOWNLOAD_PATH ANNAS_SECRET_KE
     if [ -n "$val" ]; then ok "$v = (set)"; else note "$v not set (optional)"; fi
 done
 
+# B1: v2 -> v3 migration (Vedix rename)
+if [ -d "$HOME/.ai-scientist" ] && [ ! -d "$HOME/.vedix" ]; then
+    echo
+    step "Detected v2.x install at ~/.ai-scientist -- running migration helper"
+    $PYTHON "$REPO_DIR/scripts/migrate_v2_to_v3.py" || \
+        note "migration helper exited non-zero -- inspect output above"
+fi
+
 echo
 printf "\033[32mBootstrap complete.\033[0m\n"
 echo "  - canonical repo: $REPO_DIR"

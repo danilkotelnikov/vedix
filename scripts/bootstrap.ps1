@@ -324,6 +324,17 @@ foreach ($v in @("SEMANTIC_SCHOLAR_KEY", "ANNAS_BASE_URL", "ANNAS_DOWNLOAD_PATH"
     if ($val) { Ok "$v = (set)" } else { Note "$v not set (optional)" }
 }
 
+# 9b. B1: v2 -> v3 migration (Vedix rename)
+$v2Dir = Join-Path $env:USERPROFILE ".ai-scientist"
+$v3Dir = Join-Path $env:USERPROFILE ".vedix"
+if ((Test-Path $v2Dir) -and -not (Test-Path $v3Dir)) {
+    Write-Host ""
+    Step "Detected v2.x install at $v2Dir -- running migration helper"
+    Invoke-Native -IgnoreExitCode -Description "migrate_v2_to_v3.py" -Script {
+        & python (Join-Path $RepoDir "scripts\migrate_v2_to_v3.py")
+    }
+}
+
 # 10. Summary
 Write-Host ""
 Write-Host "Bootstrap complete." -ForegroundColor Green
