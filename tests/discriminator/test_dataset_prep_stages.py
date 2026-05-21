@@ -234,3 +234,121 @@ def test_segment_paper_writes_jsonl(tmp_path):
     assert count == 2
     lines = out.read_text(encoding="utf-8").strip().splitlines()
     assert len(lines) == 2
+
+
+# -- Stage 6: dedup --------------------------------------------------------- #
+
+
+def test_dedup_removes_near_duplicates():
+    pytest.importorskip("datasketch")
+    from corpus_lib import dedup
+
+    pgs = [
+        {"paper_id": "a", "text": "The reaction was carried out at room temperature."},
+        {
+            "paper_id": "b",
+            "text": "The reaction was carried out at room temperature!",
+        },  # near-dup
+        {
+            "paper_id": "c",
+            "text": "Quantum entanglement was observed in the photonic system.",
+        },
+    ]
+    kept = dedup.dedup_minhash(pgs, jaccard_threshold=0.85)
+    # at most 2 should survive — c is unrelated, a/b are near-duplicates.
+    paper_ids = {p["paper_id"] for p in kept}
+    assert "c" in paper_ids
+    assert len(kept) == 2
+
+
+# -- Stage 7: labeling ------------------------------------------------------ #
+
+
+def test_labeling_picks_section_paragraphs():
+    from corpus_lib import labeling
+
+    pgs = [
+        {"paper_id": "a", "text": "x" * 200, "n_words": 50, "section": "Methods"},
+        {"paper_id": "a", "text": "y" * 200, "n_words": 50, "section": "References"},
+        {"paper_id": "a", "text": "z" * 200, "n_words": 10, "section": "Results"},  # too short
+    ]
+    labeled = labeling.label_positives(pgs)
+    assert len(labeled) == 1
+    assert labeled[0]["label"] == 1
+    assert labeled[0]["label_source"] == "rule"
+
+
+# -- Stage 8: negative generation ------------------------------------------- #
+
+
+@pytest.mark.asyncio
+async def test_negative_generator_dispatches_through_byok(tmp_path):
+    """Stage 8 talks to BYOK via dispatch_agent. Mock it and confirm payload shape."""
+    from corpus_lib import negative_generator
+
+    class _Resp:
+        content = "Rewritten paragraph in AI register."
+
+    async def _fake_dispatch(**kwargs):
+        return _Resp()
+
+    with patch.object(negative_generator, "dispatch_agent", side_effect=_fake_dispatch):
+        positives = [
+            {
+                "paper_id": "a",
+                "para_idx": 1,
+                "text": "Original paragraph.",
+                "section": "Methods",
+            }
+        ]
+        negatives = await negative_generator.generate_negatives(positives, concurrency=2)
+        assert len(negatives) == 1
+        neg = negatives[0]
+        assert neg["label"] == 0
+        assert neg["paper_id"] == "a_neg"
+        assert neg["label_source"] == "adversarial_generator"
+        assert neg["text"] == "Rewritten paragraph in AI register."
+
+
+# -- Stage 9: splits -------------------------------------------------------- #
+
+
+def test_splits_no_paper_leak():
+    from corpus_lib import splits
+
+    data = (
+        [{"paper_id": f"p{i}", "text": "x", "label": 1} for i in range(10)]
+        + [{"paper_id": f"q{i}", "text": "y", "label": 0} for i in range(10)]
+    )
+    train, val, test = splits.stratified_split_by_paper(
+        data, val_frac=0.2, test_frac=0.2, seed=42
+    )
+    train_pids = {d["paper_id"] for d in train}
+    val_pids = {d["paper_id"] for d in val}
+    test_pids = {d["paper_id"] for d in test}
+    assert not (train_pids & val_pids)
+    assert not (train_pids & test_pids)
+    assert not (val_pids & test_pids)
+    # All papers accounted for.
+    assert train_pids | val_pids | test_pids == {d["paper_id"] for d in data}
+
+
+# -- Stage 10: stats -------------------------------------------------------- #
+
+
+def test_stats_writes_class_balance(tmp_path):
+    from corpus_lib import stats
+
+    train = [
+        {"paper_id": "a", "text": "x", "label": 1, "n_words": 10},
+        {"paper_id": "b", "text": "y", "label": 0, "n_words": 20},
+    ]
+    val = [{"paper_id": "c", "text": "z", "label": 1, "n_words": 30}]
+    test = [{"paper_id": "d", "text": "w", "label": 0, "n_words": 40}]
+    out = tmp_path / "corpus_stats.json"
+    obj = stats.compute_stats(train=train, val=val, test=test, out=out)
+    assert out.exists()
+    assert obj["train"]["n"] == 2
+    assert obj["train"]["class_balance"] == {1: 1, 0: 1}
+    assert obj["val"]["n"] == 1
+    assert obj["test"]["n"] == 1
