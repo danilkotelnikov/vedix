@@ -24,6 +24,20 @@ try:  # heavy dep — lazily imported in production, gracefully missing in tests
 except ImportError:  # pragma: no cover
     chromadb = None  # type: ignore[assignment]
 
+try:  # torch is the Layer B engine; both training and inference need it
+    import torch  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover
+    torch = None  # type: ignore[assignment]
+
+try:  # transformers is patched out in tests, lazy-imported in production
+    from transformers import (  # type: ignore[import-untyped]
+        AutoTokenizer,
+        AutoModelForSequenceClassification,
+    )
+except ImportError:  # pragma: no cover
+    AutoTokenizer = None  # type: ignore[assignment]
+    AutoModelForSequenceClassification = None  # type: ignore[assignment]
+
 
 @dataclass
 class Verdict:
@@ -138,3 +152,102 @@ class LayerA:
             ),
             layer="A",
         )
+
+
+class LayerB:
+    """Trained-classifier discriminator.
+
+    Loads a per-(discipline, language) safetensors checkpoint (produced
+    by ``train_register_classifier_{cpu,gpu}.py``) and returns the
+    classifier's confidence that a paragraph is in-register. The model
+    is placed on the first CUDA device if one is available; otherwise
+    CPU.
+    """
+
+    def __init__(self, *, model_dir: Path):
+        self.model_dir = Path(model_dir)
+        self._tokenizer = AutoTokenizer.from_pretrained(
+            str(self.model_dir), use_fast=True
+        )
+        self._model = AutoModelForSequenceClassification.from_pretrained(
+            str(self.model_dir)
+        )
+        self._device = (
+            torch.device("cuda:0")
+            if (torch is not None and torch.cuda.is_available())
+            else torch.device("cpu")
+        )
+        self._model.to(self._device).eval()
+
+    def judge(self, paragraph: str, threshold: float = 0.5) -> Verdict:
+        """Return a Verdict whose ``score`` is P(in-register)."""
+        enc = self._tokenizer(
+            paragraph,
+            truncation=True,
+            max_length=256,
+            padding="max_length",
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            logits = self._model(
+                input_ids=enc["input_ids"].to(self._device),
+                attention_mask=enc["attention_mask"].to(self._device),
+            ).logits
+        probs = logits.softmax(-1).cpu().numpy()[0]
+        in_register_prob = float(probs[1])
+        return Verdict(
+            pass_=in_register_prob >= threshold,
+            score=round(in_register_prob, 3),
+            explanation=f"P(in-register) = {in_register_prob:.3f} vs threshold {threshold}",
+            layer="B",
+        )
+
+
+class HybridDiscriminator:
+    """Layer A (retrieval) + Layer B (trained).
+
+    A paragraph is admitted iff *both* layers accept it; if no Layer B
+    model is available for the pair, only Layer A's verdict counts.
+    """
+
+    def __init__(
+        self,
+        *,
+        corpus_root: Path,
+        classifiers_root: Path,
+        discipline: str,
+        language: str,
+    ):
+        self.layer_a = LayerA(
+            corpus_root=corpus_root, discipline=discipline, language=language
+        )
+        model_dir = classifiers_root / f"register_{discipline}_{language}"
+        self.layer_b: LayerB | None = (
+            LayerB(model_dir=model_dir) if model_dir.exists() else None
+        )
+
+    def judge(self, paragraph: str) -> dict:
+        """Return both verdicts plus an ``overall_pass`` flag.
+
+        The shape is JSON-friendly so callers can ship it through the
+        SSE event bus or persist it on a manuscript audit record.
+        """
+        va = self.layer_a.judge(paragraph)
+        result: dict = {
+            "layer_a": {
+                "pass": va.pass_,
+                "score": va.score,
+                "explanation": va.explanation,
+            }
+        }
+        if self.layer_b is not None:
+            vb = self.layer_b.judge(paragraph)
+            result["layer_b"] = {
+                "pass": vb.pass_,
+                "score": vb.score,
+                "explanation": vb.explanation,
+            }
+            result["overall_pass"] = va.pass_ and vb.pass_
+        else:
+            result["overall_pass"] = va.pass_
+        return result
