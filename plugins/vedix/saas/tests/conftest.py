@@ -54,7 +54,11 @@ def isolate_engine(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def fake_redis(monkeypatch: pytest.MonkeyPatch):
-    """Replace `redis.asyncio.from_url` with a fakeredis async client."""
+    """Replace `redis.asyncio.from_url` with a fakeredis async client.
+
+    Also invalidates any cached client inside ``app.routers.mcp_proxy``
+    so the next call to ``_redis()`` returns the fresh fake.
+    """
     import fakeredis.aioredis as fake_aioredis
     import redis.asyncio as redis_asyncio
 
@@ -64,6 +68,13 @@ def fake_redis(monkeypatch: pytest.MonkeyPatch):
         return fake
 
     monkeypatch.setattr(redis_asyncio, "from_url", _from_url)
+    # Reset any router-level cached client so the next request uses our fake.
+    try:
+        from app.routers import mcp_proxy as _proxy  # type: ignore[import]
+
+        _proxy.reset_redis_client()
+    except Exception:
+        pass
     return fake
 
 
