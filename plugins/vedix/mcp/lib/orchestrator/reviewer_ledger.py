@@ -21,3 +21,11 @@ def build_reviewer_dispatch(reviewers: list, *, mode: str,
         ],
         "fallback_reason": fallback_reason,
     }
+
+
+# --- v3.0.0 Block 13: SGCA reviewer-KG namespace allocation ---------------
+def reviewer_kg_scope_id(*, reviewer_id: str, job_id: str) -> str:
+    """Match the wing naming convention in SGCA §6.1.
+    Returns the scope_id used to open a KGStore(tier=REVIEWER, scope_id=...).
+    """
+    return f"{reviewer_id}__{job_id}"

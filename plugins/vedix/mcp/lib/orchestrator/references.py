@@ -70,3 +70,32 @@ def validate_citations(
         except Exception:
             pass
     return report
+
+
+# --- v3.0.0 Block 13: SGCA-backed bibtex generation ----------------------
+from .sgca.kg_store import KGStore as _KGStore
+
+
+def bibtex_from_kg(*, store: "_KGStore") -> str:
+    """Generate a .bib file from KG paper nodes.
+    Replaces the agent-emitted citation-list path: every \\cite{key} now
+    mechanically maps to a KG paper. Eliminates dangling/hallucinated
+    citation classes by construction."""
+    entries: list[str] = []
+    for pid in sorted(store.list_paper_ids()):
+        paper = store.read_paper(pid)
+        if paper is None:
+            continue
+        author_str = " and ".join(a.name for a in paper.authors) or "Unknown"
+        entry = (
+            f"@article{{{paper.paper_id},\n"
+            f"  author = {{{author_str}}},\n"
+            f"  title = {{{paper.title}}},\n"
+            f"  year = {{{paper.year}}},\n"
+        )
+        if paper.venue:
+            entry += f"  journal = {{{paper.venue}}},\n"
+        entry += f"  doi = {{{paper.doi}}},\n"
+        entry += "}\n"
+        entries.append(entry)
+    return "\n".join(entries)

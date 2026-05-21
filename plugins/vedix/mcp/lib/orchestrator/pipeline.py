@@ -34,6 +34,12 @@ from . import (
     adversarial_review, semantic_revision_diff, prereg_replay,
     provenance_ledger,
 )
+# --- v3.0.0 Block 13: SGCA pipeline integration ----------------------
+from .sgca.graph_builder import GraphBuilder
+from .sgca.kg_store import KGStore, Tier
+from .sgca.paragraph_planner import ParagraphPlanner
+from .sgca.claim_verifier import ClaimVerifier
+from .sgca.reviewer_track import ReviewerTrack, merge_reviewer_into_project
 
 
 @dataclass
@@ -57,14 +63,15 @@ class Pipeline:
     def __init__(
         self,
         *,
-        dispatcher: Callable,
-        evaluator: Callable,
+        dispatcher: Optional[Callable] = None,
+        evaluator: Optional[Callable] = None,
         host: str = "claude_code",
         plugin_palace: Any = None,
         project_palace: Any = None,
         token_tracker: Optional[TokenTracker] = None,
         language: str = "en",
         workspace: Optional[Path] = None,
+        project_id: Optional[str] = None,
     ):
         self.dispatcher = dispatcher
         self.evaluator = evaluator
@@ -84,9 +91,20 @@ class Pipeline:
         self.workspace = workspace
         # ----------------------------------------------------------------
         self.state = PipelineState()
+        # Bootstrap a synthetic job_id so SGCA stores have a usable scope
+        # before phase_0_init runs. phase_0_init overwrites this on real runs.
+        self.state.job_id = uuid.uuid4().hex[:8]
+        # Project id is optional (defaults to the bootstrap job_id so
+        # the project-tier KG is at least addressable for tests).
+        self.project_id = project_id or self.state.job_id
         self.checkpoints: Optional[CheckpointManager] = None
         self._hooks: dict[str, Callable] = {}
         self._register_rigor_hooks()
+        # --- v3.0.0 Block 13: SGCA writer-side stores + hooks --------
+        self._sgca_writer_store = KGStore(tier=Tier.JOB, scope_id=self.state.job_id)
+        self._sgca_paragraph_planner = ParagraphPlanner(store=self._sgca_writer_store)
+        self._sgca_claim_verifier = ClaimVerifier(store=self._sgca_writer_store)
+        self._register_sgca_hooks()
 
     # --- v3.0.0 Block 3: rigor-track hook registry ----------------------
     def _register_rigor_hooks(self) -> None:
@@ -101,9 +119,71 @@ class Pipeline:
         self._hooks["provenance_record"] = lambda *a, **kw: None  # configured per-phase
         self._hooks["disclosure_generate"] = provenance_ledger.generate_disclosure
 
+    # --- v3.0.0 Block 13: SGCA hook registry ----------------------------
+    def _register_sgca_hooks(self) -> None:
+        """Wire the SGCA pre-generation/verification surface into hook registry."""
+        self._hooks["compute_allowed_set"] = self.compute_allowed_set
+        self._hooks["verify_sentence"] = self.verify_sentence
+        self._hooks["run_phase_graph_builder"] = self.run_phase_graph_builder
+        self._hooks["run_phase_adversarial_review"] = self.run_phase_adversarial_review
+
     def list_hooks(self) -> set[str]:
         """Names of all registered hooks."""
         return set(self._hooks)
+
+    # --- Block 13: phase ordering with SGCA GraphBuilder inserted -------
+    def list_phase_order(self) -> list[str]:
+        """Canonical phase order for SGCA-enabled pipeline.
+        GraphBuilder lands between literature_search (L) and hypothesizer (H)."""
+        return [
+            "preflight",
+            "literature_search",
+            "graph_builder",           # NEW (Block 13)
+            "hypothesizer",
+            "code_generator",
+            "experiment_runner",
+            "manuscript_writer",
+            "adversarial_review",      # extends §4.4
+            "compile",
+        ]
+
+    async def run_phase_graph_builder(self, *, paper_list: list[dict]) -> dict:
+        builder = GraphBuilder(store=self._sgca_writer_store)
+        report = await builder.run(paper_list=paper_list)
+        await builder.infer_cross_paper_edges()
+        return report
+
+    async def compute_allowed_set(self, *, paragraph_id: str, paragraph_topic: str,
+                                  hypothesis_anchors: list[str]):
+        return await self._sgca_paragraph_planner.compute(
+            paragraph_id=paragraph_id,
+            paragraph_topic=paragraph_topic,
+            hypothesis_anchors=hypothesis_anchors,
+        )
+
+    async def verify_sentence(self, sentence):
+        return await self._sgca_claim_verifier.verify(sentence)
+
+    async def run_phase_adversarial_review(self, *, headline_claim_ids: list[str],
+                                           n_reviewers: int = 2) -> list:
+        verdicts = []
+        for i in range(1, n_reviewers + 1):
+            reviewer_store = KGStore(tier=Tier.REVIEWER,
+                                     scope_id=f"{i}__{self.state.job_id}")
+            # In production, the reviewer's own L+G phases run first; here we trust they have.
+            track = ReviewerTrack(
+                reviewer_id=str(i),
+                writer_store=self._sgca_writer_store,
+                reviewer_store=reviewer_store,
+            )
+            verdict = await track.confront_headlines(headline_claim_ids=headline_claim_ids)
+            verdicts.append(verdict)
+            # Merge into project tier
+            project_store = KGStore(tier=Tier.PROJECT, scope_id=self.project_id)
+            merge_reviewer_into_project(reviewer_store=reviewer_store,
+                                        project_store=project_store)
+        return verdicts
+    # --- end Block 13 ---------------------------------------------------
 
     # --- Phase 0 ---------------------------------------------------------
     def phase_0_init(self, *, topic: str, domain: str, output_dir: Path) -> None:
