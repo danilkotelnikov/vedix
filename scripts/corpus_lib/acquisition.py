@@ -121,8 +121,105 @@ async def _call_pubmed(query: str, language: str, n: int) -> list[dict]:
 
 
 async def _call_annas(query: str, language: str, n: int) -> list[dict]:
-    """Search Anna's Archive via ``mcp__annas-mcp__article_search``."""
-    return []
+    """Search Anna's Archive via the ``annas-mcp`` stdio server.
+
+    Spawns ``npx -y annas-mcp mcp`` as a subprocess (using the user's
+    ANNAS_SECRET_KEY / ANNAS_BASE_URL / ANNAS_DOWNLOAD_PATH env vars), calls
+    the ``article_search`` tool, and normalizes the JSON payload into the
+    Vedix candidate shape ``{id, doi, title, year, language, license,
+    full_text_url, _source}``.
+
+    Returns an empty list when ANNAS_SECRET_KEY is unset (silent skip so
+    parallel harvest from other MCPs is unaffected).
+    """
+    import logging
+    import os
+    from pathlib import Path
+
+    log = logging.getLogger("vedix.acquisition.annas")
+    secret_key = os.environ.get("ANNAS_SECRET_KEY", "").strip()
+    if not secret_key:
+        log.debug("ANNAS_SECRET_KEY not set; skipping Anna's Archive (set it to enable; 100 papers/day quota applies)")
+        return []
+
+    base_url = os.environ.get("ANNAS_BASE_URL", "https://annas-archive.org")
+    download_path = os.environ.get(
+        "ANNAS_DOWNLOAD_PATH",
+        str(Path.home() / ".vedix" / "raw_downloads"),
+    )
+    Path(download_path).mkdir(parents=True, exist_ok=True)
+
+    from .mcp_client import MCPClient, extract_text_from_mcp_result
+
+    log.info("annas-mcp search: query=%r language=%s limit=%d", query, language, n)
+
+    try:
+        async with MCPClient(
+            command="npx",
+            args=["-y", "annas-mcp", "mcp"],
+            env={
+                "ANNAS_SECRET_KEY": secret_key,
+                "ANNAS_BASE_URL": base_url,
+                "ANNAS_DOWNLOAD_PATH": download_path,
+            },
+        ) as client:
+            result = await client.call_tool(
+                "article_search",
+                {"query": query, "language": language, "limit": n},
+                timeout=120.0,
+            )
+    except Exception as exc:  # noqa: BLE001 — never let one MCP nuke the whole harvest
+        log.warning("annas-mcp call failed: %s", exc)
+        return []
+
+    text = extract_text_from_mcp_result(result)
+    if not text:
+        log.warning("annas-mcp returned no text payload for query=%r", query)
+        return []
+
+    # The server may return JSON directly, or JSON wrapped in a string. Try both.
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        log.warning("annas-mcp returned non-JSON for query=%r (first 200 chars: %r)", query, text[:200])
+        return []
+    if isinstance(payload, dict):
+        items = payload.get("results") or payload.get("articles") or payload.get("items") or []
+    elif isinstance(payload, list):
+        items = payload
+    else:
+        items = []
+
+    normalized: list[dict] = []
+    for paper in items[:n]:
+        if not isinstance(paper, dict):
+            continue
+        # Anna's Archive identifies papers by md5; fall back to DOI when present.
+        ident = paper.get("md5") or paper.get("doi") or paper.get("id")
+        if not ident:
+            continue
+        # Construct a download URL. annas-mcp may emit a ready-to-fetch URL;
+        # otherwise build one from md5.
+        download_url = (
+            paper.get("download_url")
+            or paper.get("url")
+            or (f"{base_url.rstrip('/')}/md5/{paper['md5']}" if paper.get("md5") else None)
+        )
+        if not download_url:
+            continue
+        normalized.append({
+            "id": ident,
+            "doi": paper.get("doi"),
+            "title": (paper.get("title") or "").strip(),
+            "year": paper.get("year") or paper.get("publication_year"),
+            "language": paper.get("language", language),
+            "license": paper.get("license", "annas-archive"),
+            "full_text_url": download_url,
+            "venue": paper.get("journal") or paper.get("venue"),
+            "_source": "annas",
+        })
+    log.info("annas-mcp returned %d candidates for query=%r", len(normalized), query)
+    return normalized
 
 
 # --------------------------------------------------------------------------- #
