@@ -9,7 +9,7 @@
   "license": "MIT",
   "keywords": [
     "research",
-    "ai-scientist",
+    "vedix",
     "subagents",
     "scientific-writing",
     "literature-review",
@@ -24,10 +24,7 @@
     "orchestrator",
     "python",
     "stage-gate",
-    "ensemble-review"
-  ],
-  "commands": {
-    "vedix": { "description": "Run the full Vedix research pipeline" },
-    "research": { "alias": "vedix" }
-  }
+    "ensemble-review",
+    "sgca"
+  ]
 }
