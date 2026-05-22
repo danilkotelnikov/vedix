@@ -77,20 +77,20 @@ client.models.generate_content(
 
 ## MCP server access
 
-Gemini CLI extensions declare MCP servers in `gemini-extension.json` under `mcpServers` — same shape as Claude Code's `.mcp.json`. The plugin's `gemini-extension.json` registers all 9 servers (ai-scientist, mempalace, openalex, semanticscholar, arxiv, biorxiv, pubmed, annas-mcp, fetcher). Tool names are identical to Claude Code: `mcp__<server>__<tool>`.
+Gemini CLI extensions declare MCP servers in `gemini-extension.json` under `mcpServers` — same shape as Claude Code's `.mcp.json`. The plugin's `gemini-extension.json` registers all 9 servers (vedix, mempalace, openalex, semanticscholar, arxiv, biorxiv, pubmed, annas-mcp, fetcher). Tool names are identical to Claude Code: `mcp__<server>__<tool>`.
 
 ## Slash commands
 
-Gemini commands are TOML files in `commands/`. The plugin's slash commands (`/ai-scientist`, `/ai-scientist-list`, etc.) live in `plugins/ai-scientist/commands/` as Markdown — Gemini doesn't auto-detect them. Use natural-language activation instead:
+Gemini commands are TOML files in `commands/`. The plugin's slash commands (`/vedix`, `/vedix-list`, etc.) live in `plugins/vedix/commands/` as Markdown — Gemini doesn't auto-detect them. Use natural-language activation instead:
 
 | Claude Code slash command | Gemini equivalent (natural language) |
 |---|---|
-| `/ai-scientist <topic>` | "use ai-scientist to research \<topic\>" |
-| `/ai-scientist-list` | "list ai-scientist jobs" |
-| `/ai-scientist-output <id>` | "show output for ai-scientist job \<id\>" |
-| `/ai-scientist-query <terms>` | "search ai-scientist knowledge for \<terms\>" |
-| `/ai-scientist-meta` | "show ai-scientist meta-analysis" |
-| `/ai-scientist-resume <id>` | "resume ai-scientist job \<id\>" |
+| `/vedix <topic>` | "use vedix to research \<topic\>" |
+| `/vedix-list` | "list vedix jobs" |
+| `/vedix-output <id>` | "show output for vedix job \<id\>" |
+| `/vedix-query <terms>` | "search vedix knowledge for \<terms\>" |
+| `/vedix-meta` | "show vedix meta-analysis" |
+| `/vedix-resume <id>` | "resume vedix job \<id\>" |
 
 Or paste a manifest of available commands at session start so Gemini's skill activation routes correctly.
 

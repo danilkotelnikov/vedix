@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-tree-search-runner
+name: vedix-tree-search-runner
 description: Best-First Tree Search (BFTS) experiment runner. Wraps the canonical Sakana AI-Scientist treesearch/perform_experiments_bfts_with_agentmanager.py module. Explores multiple experiment-implementation variants in a tree structure, parallel-evaluates them, and picks the best by metric. 5-20x slower than single-shot experiment-runner but materially better when the optimal implementation is non-obvious. Gated on the --bfts flag.
 model: opus
 thinking:

@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-code-generator
+name: vedix-code-generator
 description: Generates a runnable Python experiment script (experiment.py) plus its requirements.txt, implementing the methodology from hypothesis.md using only the domain template's preferred libraries.
 model: opus
 thinking:

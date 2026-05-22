@@ -1,6 +1,6 @@
 <!-- plugins/vedix/agents/paper-extractor.md -->
 ---
-name: paper-extractor
+name: vedix-paper-extractor
 description: Reads one scientific paper's raw text and emits a schema-validated multi-typed KG fragment per SGCA §3.1.
 agent_class: paper-extractor
 preferred_providers: [deepseek, qwen, openai]

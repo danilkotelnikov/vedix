@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-hypothesizer
+name: vedix-hypothesizer
 description: Produces a testable hypothesis with mathematical models, statistical framework, methodology, and codebase integration plan. Grounded in literature + prior meta-analysis.
 model: opus
 thinking:

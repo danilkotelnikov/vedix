@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-meta-analyst
+name: vedix-meta-analyst
 description: Reads all trajectories and jobs, computes per-domain success rates and failure patterns, writes meta_analysis.json + what_works.json with concrete recommendations for future jobs.
 model: sonnet
 thinking:

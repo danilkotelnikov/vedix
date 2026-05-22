@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-vlm-reviewer
+name: vedix-vlm-reviewer
 description: Vision-language review of rendered manuscript figures. Wraps the canonical Sakana AI-Scientist perform_vlm_review.py module. Detects duplicate figures, validates captions match content, scores each figure for clarity/relevance/quality, and flags figures that don't match their referenced text in the manuscript. Multimodal — reads PNGs directly. Triggered after Phase 8 (LaTeX compile) for full pipelines, or standalone for "review my figures" intent.
 model: opus
 thinking:

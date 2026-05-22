@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-experiment-runner
+name: vedix-experiment-runner
 description: Installs requirements.txt into the per-job venv, runs experiment.py with timeout, parses stderr on failure, patches the script up to 3 rounds. Returns a structured run report.
 model: sonnet
 thinking:

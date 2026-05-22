@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-codebase-scanner
+name: vedix-codebase-scanner
 description: Scans a target codebase to extract entry points, modules, dependencies, key patterns, and extension points. Emits structured codebase_analysis.json. Triggered when user provides --codebase or asks to analyze/audit a repo.
 model: sonnet
 thinking:

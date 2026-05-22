@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-reviewer
+name: vedix-reviewer
 description: Performs NeurIPS-format peer review of the manuscript. Multimodal — also performs visual validation pass on rendered PDF/DOCX pages. Produces review.json + manuscript_v2.tex with top-3 fixes applied.
 model: opus
 thinking:

@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-citator
+name: vedix-citator
 description: Iteratively adds missing citations to references.bib (up to 5 rounds). Searches Semantic Scholar by topic gap. Never fabricates metadata.
 model: sonnet
 thinking:

@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-ideator
+name: vedix-ideator
 description: Generates a structured research idea (Name, Title, Hypothesis, Related Work, Abstract, Experiments, Risks) with novelty check via OpenAlex/Semantic Scholar. Reads prior meta-analysis to avoid re-treading failed approaches.
 model: opus
 thinking:

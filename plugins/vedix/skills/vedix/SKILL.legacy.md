@@ -36,7 +36,7 @@ runs cross-validation against Codex after every phase listed in
 **Cross-validation flow** (after each cross-validatable phase):
 
 1. After Claude returns the phase artifact (e.g. hypothesis.md), dispatch
-   `Task(subagent_type="ai-scientist-codex-cross-validator", prompt=...)`
+   `Task(subagent_type="vedix-codex-cross-validator", prompt=...)`
    with `task_type`, `claude_output`, and `task_inputs` inlined.
 2. The validator agent pipes the spec to `codex_bridge_cli.py
    cross-validate` with a hard timeout. Codex returns a verdict.
@@ -116,14 +116,14 @@ The plugin bundles canonical Sakana AI-Scientist Python modules at `<plugin>/mcp
 
 | Phase | .md agent route | .py script route (canonical Sakana) |
 |---|---|---|
-| 0.5 Ideation | `ai-scientist-ideator` | `python <plugin>/mcp/lib/sakana/perform_ideation_temp_free.py --topic ...` |
-| 4 Experiment (single-shot) | `ai-scientist-experiment-runner` | (no canonical single-shot; use BFTS instead) |
-| 4 Experiment (BFTS tree-search) | `ai-scientist-tree-search-runner` | `python <plugin>/mcp/lib/sakana/treesearch/perform_experiments_bfts_with_agentmanager.py --config bfts_config.yaml` |
-| 5.5 Plot aggregation | `ai-scientist-plotter` | `python <plugin>/mcp/lib/sakana/perform_plotting.py --output_dir ...` |
-| 5 Manuscript (NeurIPS/aiscientist) | `ai-scientist-manuscript-writer` | `python <plugin>/mcp/lib/sakana/perform_writeup.py ...` |
+| 0.5 Ideation | `vedix-ideator` | `python <plugin>/mcp/lib/sakana/perform_ideation_temp_free.py --topic ...` |
+| 4 Experiment (single-shot) | `vedix-experiment-runner` | (no canonical single-shot; use BFTS instead) |
+| 4 Experiment (BFTS tree-search) | `vedix-tree-search-runner` | `python <plugin>/mcp/lib/sakana/treesearch/perform_experiments_bfts_with_agentmanager.py --config bfts_config.yaml` |
+| 5.5 Plot aggregation | `vedix-plotter` | `python <plugin>/mcp/lib/sakana/perform_plotting.py --output_dir ...` |
+| 5 Manuscript (NeurIPS/aiscientist) | `vedix-manuscript-writer` | `python <plugin>/mcp/lib/sakana/perform_writeup.py ...` |
 | 5 Manuscript (ICBINB workshop) | same agent + `latex_template: icbinb` | `python <plugin>/mcp/lib/sakana/perform_icbinb_writeup.py ...` |
-| 7 Self-review (textual) | `ai-scientist-reviewer` | `python <plugin>/mcp/lib/sakana/perform_llm_review.py ...` |
-| 8.5 Visual VLM review | `ai-scientist-vlm-reviewer` | `python <plugin>/mcp/lib/sakana/perform_vlm_review.py ...` |
+| 7 Self-review (textual) | `vedix-reviewer` | `python <plugin>/mcp/lib/sakana/perform_llm_review.py ...` |
+| 8.5 Visual VLM review | `vedix-vlm-reviewer` | `python <plugin>/mcp/lib/sakana/perform_vlm_review.py ...` |
 
 Default: dispatch the .md agent (lighter, host-native). Switch to the .py route via `--use-canonical-scripts` flag for upstream-faithful behavior — useful for benchmarking against published Sakana results.
 
@@ -134,7 +134,7 @@ When invoked WITHOUT an explicit slash command (i.e., on natural-language reques
 1. Read the user's request.
 2. Map it to an intent (NOT regex — reason about it).
 3. If ambiguous, use `AskUserQuestion` to disambiguate (offer the 2–3 most likely intents as options).
-4. If `/ai-scientist` was invoked OR `--full` flag present: skip classification, route to full-pipeline (Intent #8, all 12 agents).
+4. If `/vedix` was invoked OR `--full` flag present: skip classification, route to full-pipeline (Intent #8, all 12 agents).
 5. If `--only <agent>` flag present: dispatch only that agent.
 
 Required inputs are listed in `routing-intents.md`. If missing, ask once via `AskUserQuestion`.
@@ -147,7 +147,7 @@ Required inputs are listed in `routing-intents.md`. If missing, ask once via `As
 2. Generate job ID: 8-char random hex.
 3. Create output dir: `<output-dir>/`.
 4. Write `config.json` (job_id, topic, domain, codebase_path, created_at, preferred_libraries, experiment_type, evaluation_metric, python_version, pip_path, venv_path).
-5. **Recall ai-scientist knowledge** (cross-job): call `mcp__ai-scientist__search_knowledge_index(query=topic, limit=20)`, then `get_knowledge_details(ids=[...])` for top hits. Also `get_meta_analysis()` and `get_what_works()`. Report counts and reusable queries to user.
+5. **Recall ai-scientist knowledge** (cross-job): call `mcp__vedix__search_knowledge_index(query=topic, limit=20)`, then `get_knowledge_details(ids=[...])` for top hits. Also `get_meta_analysis()` and `get_what_works()`. Report counts and reusable queries to user.
 6. **Initialize per-project MemPalace** (project-scoped memory DB — strict isolation, no cross-project leakage):
    - **Path: `<output_dir>/.palace/`** — the palace lives INSIDE the job's output dir. Deleting the project removes the palace; no global `~/.ai-scientist/palace/` is used. This is the foundation of the no-cross-project-leak guarantee.
    - Init via MCP: `mcp__mempalace__init(root="<output_dir>/.palace")` (or shell: `mempalace init <output_dir>/.palace`).
@@ -159,7 +159,7 @@ Required inputs are listed in `routing-intents.md`. If missing, ask once via `As
 
 ## Phase 0.5: Ideation
 
-Dispatch `Task(subagent_type="ai-scientist-ideator", prompt=...)`. Inline:
+Dispatch `Task(subagent_type="vedix-ideator", prompt=...)`. Inline:
 - Topic, domain, codebase path (if any)
 - Prior knowledge summary (top 3 hits, meta-analysis recommendations)
 - Interactivity flag
@@ -168,7 +168,7 @@ Expect: JSON content for `idea.json`. Write to `<output-dir>/idea.json`.
 
 ## Phase 0.75: Codebase scan (optional)
 
-If `--codebase <path>` provided, dispatch `Task(subagent_type="ai-scientist-codebase-scanner", ...)`. Inline path. Expect JSON for `codebase_analysis.json`. Write to disk.
+If `--codebase <path>` provided, dispatch `Task(subagent_type="vedix-codebase-scanner", ...)`. Inline path. Expect JSON for `codebase_analysis.json`. Write to disk.
 
 ## Phase 1: Literature search
 
@@ -177,12 +177,12 @@ If `--codebase <path>` provided, dispatch `Task(subagent_type="ai-scientist-code
 In a SINGLE message, emit 6 (or fewer, depending on enabled sources from settings) Task() dispatches in parallel:
 
 ```
-Task(subagent_type="ai-scientist-literature-searcher", prompt=<prompt with source="openalex" + queries + budgets>)
-Task(subagent_type="ai-scientist-literature-searcher", prompt=<prompt with source="arxiv" + queries + budgets>)
-Task(subagent_type="ai-scientist-literature-searcher", prompt=<prompt with source="pubmed" + queries + budgets>)
-Task(subagent_type="ai-scientist-literature-searcher", prompt=<prompt with source="biorxiv" + queries + budgets>)
-Task(subagent_type="ai-scientist-literature-searcher", prompt=<prompt with source="semantic_scholar" + queries + budgets>)
-Task(subagent_type="ai-scientist-literature-searcher", prompt=<prompt with source="annas_archive" + queries + budgets>)
+Task(subagent_type="vedix-literature-searcher", prompt=<prompt with source="openalex" + queries + budgets>)
+Task(subagent_type="vedix-literature-searcher", prompt=<prompt with source="arxiv" + queries + budgets>)
+Task(subagent_type="vedix-literature-searcher", prompt=<prompt with source="pubmed" + queries + budgets>)
+Task(subagent_type="vedix-literature-searcher", prompt=<prompt with source="biorxiv" + queries + budgets>)
+Task(subagent_type="vedix-literature-searcher", prompt=<prompt with source="semantic_scholar" + queries + budgets>)
+Task(subagent_type="vedix-literature-searcher", prompt=<prompt with source="annas_archive" + queries + budgets>)
 ```
 
 Each subagent receives:
@@ -219,13 +219,13 @@ BibTeX key format: `{LastName}{Year}_{index}`. If first author is empty/unknown:
 
 Read `paper_list.json` (first 10 papers compact), `codebase_analysis.json` (if exists), `idea.json`, prior hypotheses (via MCP `search_knowledge_index(mem_type="hypotheses")`), `meta_analysis.json` (failure patterns).
 
-Dispatch `Task(subagent_type="ai-scientist-hypothesizer", ...)`. Expect: hypothesis.md content + equations.txt content.
+Dispatch `Task(subagent_type="vedix-hypothesizer", ...)`. Expect: hypothesis.md content + equations.txt content.
 
 Write both to `<output-dir>/`.
 
 ## Phase 3: Codegen
 
-Read hypothesis.md, config.json, codebase_analysis.json. Dispatch `Task(subagent_type="ai-scientist-code-generator", ...)`. Expect: experiment.py + requirements.txt content.
+Read hypothesis.md, config.json, codebase_analysis.json. Dispatch `Task(subagent_type="vedix-code-generator", ...)`. Expect: experiment.py + requirements.txt content.
 
 Write to `<output-dir>/experiment.py` and `<output-dir>/requirements.txt`. Strip any markdown fences from agent output.
 
@@ -234,7 +234,7 @@ Write to `<output-dir>/experiment.py` and `<output-dir>/requirements.txt`. Strip
 Two dispatch routes, picked by settings + flags:
 
 **Route A — single-shot + auto-fix (default):**
-Dispatch `Task(subagent_type="ai-scientist-experiment-runner", ...)`. Inline:
+Dispatch `Task(subagent_type="vedix-experiment-runner", ...)`. Inline:
 - Path to output dir (it has Bash; will install deps and run inside venv)
 - Auto-fix budget (default 3 rounds, from `experiment.auto_fix_max_rounds`)
 - Timeout (default 300s, from `experiment.timeout_seconds`)
@@ -244,7 +244,7 @@ Expect: structured run report (exit codes, stdout/stderr summary, fix log, paths
 [ON ERROR: if final_exit_code != 0, trigger Fixer flow per Phase F.]
 
 **Route B — BFTS tree search (canonical Sakana):**
-Active when `--bfts` flag passed OR `experiment.use_bfts: true` in settings. Dispatch `Task(subagent_type="ai-scientist-tree-search-runner", ...)`. The agent wraps `<plugin>/mcp/lib/sakana/treesearch/perform_experiments_bfts_with_agentmanager.py` and explores N variants of the experiment in parallel, picking the best by metric. 5-20× slower than Route A but materially better when the right implementation is uncertain.
+Active when `--bfts` flag passed OR `experiment.use_bfts: true` in settings. Dispatch `Task(subagent_type="vedix-tree-search-runner", ...)`. The agent wraps `<plugin>/mcp/lib/sakana/treesearch/perform_experiments_bfts_with_agentmanager.py` and explores N variants of the experiment in parallel, picking the best by metric. 5-20× slower than Route A but materially better when the right implementation is uncertain.
 
 Time-budget gating: BFTS defaults to 30 min wall-clock cap. Override via `--bfts-time-budget <minutes>`.
 
@@ -254,7 +254,7 @@ After completion, BFTS promotes its winning variant to the canonical job paths (
 
 (Numbered 5.5 to preserve original phase ordering — runs after Phase 4 but before Phase 5.)
 
-Dispatch `Task(subagent_type="ai-scientist-plotter", ...)`. Inline output dir path, results.csv summary, list of .npy files. Expect: aggregator script + run summary.
+Dispatch `Task(subagent_type="vedix-plotter", ...)`. Inline output dir path, results.csv summary, list of .npy files. Expect: aggregator script + run summary.
 
 ## Phase 5: Manuscript
 
@@ -272,7 +272,7 @@ Build coordination plan:
 }
 ```
 
-Dispatch `Task(subagent_type="ai-scientist-manuscript-writer", ...)` — it will internally Task() 6 section subagents in parallel. Pass coordination plan + chosen LaTeX template path. Expect: assembled manuscript.tex.
+Dispatch `Task(subagent_type="vedix-manuscript-writer", ...)` — it will internally Task() 6 section subagents in parallel. Pass coordination plan + chosen LaTeX template path. Expect: assembled manuscript.tex.
 
 After return, run consistency checks:
 1. Verify all `\cite{key}` references exist in `references.bib`
@@ -283,11 +283,11 @@ After return, run consistency checks:
 
 ## Phase 6: Citation enrichment
 
-Dispatch `Task(subagent_type="ai-scientist-citator", ...)`. Up to 5 rounds (from `phases.citation_enrichment.max_rounds`). Expect: updated references.bib content. Write to disk.
+Dispatch `Task(subagent_type="vedix-citator", ...)`. Up to 5 rounds (from `phases.citation_enrichment.max_rounds`). Expect: updated references.bib content. Write to disk.
 
 ## Phase 7: Self-review
 
-Dispatch `Task(subagent_type="ai-scientist-reviewer", ...)`. Expect: review.json + manuscript_v2.tex (if Actionable_Fixes non-empty).
+Dispatch `Task(subagent_type="vedix-reviewer", ...)`. Expect: review.json + manuscript_v2.tex (if Actionable_Fixes non-empty).
 
 ## Phase 8: LaTeX compile
 
@@ -300,7 +300,7 @@ If `pdflatex` is not available, skip and note: "LaTeX compilation skipped — in
 1. Detect Pandoc: `where pandoc` (Win) or `which pandoc` (Unix).
 2. If found: `pandoc manuscript.tex --reference-doc=<plugin>/mcp/templates/word/<chosen>.docx -o manuscript.docx`.
 3. If not: invoke `Skill(skill="anthropic-skills:docx", ...)` with section content from manuscript_writer's section subagent outputs.
-4. If both fail: skip with logged warning. User can run `/ai-scientist-resume <job-id>` after manual install.
+4. If both fail: skip with logged warning. User can run `/vedix-resume <job-id>` after manual install.
 
 ## Phase 8.5: Visual validation (VLM Reviewer)
 
@@ -309,7 +309,7 @@ Two dispatch routes:
 **Route A — md_agent (default for partial intents):**
 1. Render LaTeX PDF to PNGs: `pdftoppm -r 150 manuscript.pdf manuscript_page`.
 2. Render Word DOCX → PDF → PNGs: `libreoffice --headless --convert-to pdf manuscript.docx && pdftoppm -r 150 manuscript.pdf word_page`.
-3. Dispatch `Task(subagent_type="ai-scientist-vlm-reviewer", ...)` with `route=md_agent` and PNG paths inlined. Agent's Read is multimodal — it sees the rendered pages directly.
+3. Dispatch `Task(subagent_type="vedix-vlm-reviewer", ...)` with `route=md_agent` and PNG paths inlined. Agent's Read is multimodal — it sees the rendered pages directly.
 4. Write `visual_review.json`. High-severity issues route through the Fixer flow.
 
 **Route B — canonical-script (upstream Sakana reference benchmark):**
@@ -337,9 +337,9 @@ Direct MCP calls (no agent dispatch):
 
 ## Phase 10: Meta-analysis
 
-Fast path: call `mcp__ai-scientist__run_meta_analysis()`. Returns summary, writes `meta_analysis.json` + `what_works.json`.
+Fast path: call `mcp__vedix__run_meta_analysis()`. Returns summary, writes `meta_analysis.json` + `what_works.json`.
 
-For richer narrative, dispatch `Task(subagent_type="ai-scientist-meta-analyst", ...)`. Expect: structured analysis JSON + recommendations.
+For richer narrative, dispatch `Task(subagent_type="vedix-meta-analyst", ...)`. Expect: structured analysis JSON + recommendations.
 
 ## Phase F: Fixer flow (on any phase failure or malformed agent output)
 
@@ -351,7 +351,7 @@ This phase is invoked from any other phase when:
 Steps:
 
 1. Capture failure context: phase name, error class (network|dependency|schema|runtime|timeout|output-parse), stderr or excerpt, current artifacts on disk.
-2. Dispatch `Task(subagent_type="ai-scientist-fixer", ...)`. Inline the failure bundle.
+2. Dispatch `Task(subagent_type="vedix-fixer", ...)`. Inline the failure bundle.
 3. Receive 2–4 fix options from the Fixer.
 4. Surface to user via `AskUserQuestion`. Include the Fixer's recommended option marked "(Recommended)".
 5. Apply the user's pick. Re-dispatch the original phase agent.
@@ -361,7 +361,7 @@ Steps:
 
 State on disk is always either correct or marked as `<phase>_failed.json` with a structured failure record.
 
-## Listing jobs (`/ai-scientist-list`)
+## Listing jobs (`/vedix-list`)
 
 Read `~/.ai-scientist/jobs.json` and display a table:
 
@@ -371,17 +371,17 @@ Job ID   | Topic                          | Domain              | Status  | Date
 a1b2c3d4 | Nanobody binding prediction    | computational_bio   | done    | 2026-04-08
 ```
 
-## Querying knowledge (`/ai-scientist-query`)
+## Querying knowledge (`/vedix-query`)
 
-1. Layer 1 (Index): call `mcp__ai-scientist__search_knowledge_index(query=..., limit=20)` — get compact results with IDs.
-2. Layer 2 (Details): for interesting results, call `mcp__ai-scientist__get_knowledge_details(ids=[...])`.
-3. Also surface `mcp__ai-scientist__get_meta_analysis()` and `get_what_works()` insights.
+1. Layer 1 (Index): call `mcp__vedix__search_knowledge_index(query=..., limit=20)` — get compact results with IDs.
+2. Layer 2 (Details): for interesting results, call `mcp__vedix__get_knowledge_details(ids=[...])`.
+3. Also surface `mcp__vedix__get_meta_analysis()` and `get_what_works()` insights.
 
-## Getting job output (`/ai-scientist-output`)
+## Getting job output (`/vedix-output`)
 
 Read the job's output dir from `~/.ai-scientist/jobs.json`. Return the requested section: `literature` | `hypothesis` | `manuscript` | `stats` | `all`.
 
-## Meta view (`/ai-scientist-meta`)
+## Meta view (`/vedix-meta`)
 
 Read `~/.ai-scientist/meta_analysis.json` and `~/.ai-scientist/what_works.json`. Display:
 - Total jobs, success rate, average manuscript length
@@ -389,7 +389,7 @@ Read `~/.ai-scientist/meta_analysis.json` and `~/.ai-scientist/what_works.json`.
 - Common failure patterns
 - Recommendations for future jobs
 
-## Resume (`/ai-scientist-resume`)
+## Resume (`/vedix-resume`)
 
 Read job artifacts from disk. Detect last successful phase. Resume from the next phase. With `--from-phase <name>`, force restart from that phase.
 

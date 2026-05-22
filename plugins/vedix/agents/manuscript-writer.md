@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-manuscript-writer
+name: vedix-manuscript-writer
 description: Writes a complete LaTeX scientific manuscript by orchestrating 6 nested section subagents in parallel (Abstract, Introduction, Methods, Results, Discussion, Conclusion). Enforces consistency (citations, figure refs, no contradictions, no placeholders). Picks LaTeX template per settings.
 model: opus
 thinking:

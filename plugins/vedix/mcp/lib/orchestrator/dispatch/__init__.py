@@ -35,7 +35,9 @@ def get_dispatcher(host: str) -> type:
 
 __all__ = ["ClaudeCodeDispatcher", "CodexDispatcher",
            "CodexNativeDispatcher", "GeminiDispatcher", "get_dispatcher",
-           "dispatch_agent", "AGENT_CLASS_DEFAULTS"]
+           "dispatch_agent", "AGENT_CLASS_DEFAULTS",
+           "set_host_dispatcher", "detect_host_native_available",
+           "BYOKSetupRequired"]
 
 
 # --------------------------------------------------------------------------- #
@@ -186,14 +188,29 @@ async def dispatch_agent(
             first = cfg["chain"][0] if cfg.get("chain") else "anthropic"
             model = _byok_factory.default_model(first)
         except FileNotFoundError as e:
-            raise RuntimeError(
-                "Cannot dispatch agent: no host-native dispatcher injected "
-                "(not running inside an agentic CLI) AND no BYOK provider "
-                "configured at ~/.vedix/byok/providers.json. Run "
-                "`vedix provider add <name> --api-key ...` to configure BYOK, "
-                "or launch this code from inside Claude Code / Codex / Gemini."
+            # Neither host-native NOR BYOK is available. Raise the typed
+            # exception SKILL.md catches to surface `byok_setup_needed`.
+            raise BYOKSetupRequired(
+                "No host-native dispatcher injected (running outside an "
+                "agentic CLI) AND no BYOK provider configured at "
+                "~/.vedix/byok/providers.json. The SKILL.md `byok_setup_needed` "
+                "gate handler should call mcp__vedix__configure_provider, "
+                "or the user can abort via mcp__vedix__pipeline_cancel."
             ) from e
 
     req = ChatRequest(messages=msgs, model=model, max_tokens=max_tokens)
     router = _get_router()
     return await router.chat(req, agent_class=agent_type)
+
+
+# --------------------------------------------------------------------------- #
+# Typed exception surfaced by dispatch_agent when neither path is available.  #
+# SKILL.md and the MCP server's handler catch this to surface the             #
+# `byok_setup_needed` gate via AskUserQuestion. Defined at module bottom so   #
+# all references in dispatch_agent above can resolve it.                       #
+# --------------------------------------------------------------------------- #
+class BYOKSetupRequired(RuntimeError):
+    """Raised by dispatch_agent when no host-native dispatcher is injected AND
+    no BYOK provider is configured. Caught by the MCP server / SKILL.md to
+    present the `byok_setup_needed` gate (configure BYOK / degraded run / abort).
+    Inherits from RuntimeError so legacy callers that catch broadly still see it."""

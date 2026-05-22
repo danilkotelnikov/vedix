@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-plotter
+name: vedix-plotter
 description: "Generates publication-grade figures via 3-cycle iterative refinement. Two output paths: matplotlib/seaborn scripting and LaTeX-native TikZ/pgfplots. Per-cycle artifacts in figures_draft1/, figures_draft2/, figures_final/. Auto-applies Okabe-Ito palette and journal-specific rcParams. Uses VLM critique on a 10-point rubric for Cycle 2."
 model: sonnet
 thinking:

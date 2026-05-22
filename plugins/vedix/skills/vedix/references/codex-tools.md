@@ -31,9 +31,9 @@ Without it, the orchestrator falls back to sequential phase execution (slower bu
 
 ## Named-agent dispatch in Codex
 
-Codex doesn't have a named-agent registry like Claude Code's `subagent_type="ai-scientist-ideator"`. The orchestrator must:
+Codex doesn't have a named-agent registry like Claude Code's `subagent_type="vedix-ideator"`. The orchestrator must:
 
-1. Read the agent's `.md` file from `~/.agents/agents/ai-scientist/<agent-name>.md` (symlinked at install).
+1. Read the agent's `.md` file from `~/.agents/agents/vedix/<agent-name>.md` (symlinked at install).
 2. Strip the YAML frontmatter (the `model:`, `thinking:`, `tools:` block).
 3. Substitute the `<input name="...">` placeholders with the actual values.
 4. Call `spawn_agent(agent_type="worker", message=<filled body>)`.
@@ -66,7 +66,7 @@ The agent frontmatter declares `model: opus` or `model: sonnet` and a `thinking.
 ```python
 # Pseudocode — actual call shape depends on Codex version
 import yaml, re
-agent_file = read("~/.agents/agents/ai-scientist/ideator.md")
+agent_file = read("~/.agents/agents/vedix/ideator.md")
 match = re.match(r"^---\n(.*?)\n---", agent_file, re.DOTALL)
 fm = yaml.safe_load(match.group(1))
 body = agent_file[match.end():]
@@ -87,7 +87,7 @@ Codex's `[mcp_servers.<name>]` config blocks register tool prefixes — once add
 
 | MCP | Tool example |
 |---|---|
-| `ai-scientist` | `mcp__ai-scientist__search_knowledge_index` |
+| `vedix` | `mcp__vedix__search_knowledge_index` |
 | `openalex` | `mcp__openalex__search_works` |
 | `semanticscholar` | `mcp__semanticscholar__search_semantic_scholar` |
 | Pre-existing platform MCPs (arxiv, biorxiv, pubmed, annas-mcp, fetcher) | Already registered in your Codex config |
@@ -100,12 +100,12 @@ Codex doesn't implement slash commands. The skill activates via natural-language
 
 | Claude Code | Codex equivalent |
 |---|---|
-| `/ai-scientist <topic>` | "use ai-scientist to research \<topic\>" or "/ai-scientist \<topic\>" (Codex's skill matcher handles both) |
-| `/ai-scientist-list` | "list ai-scientist jobs" |
-| `/ai-scientist-output <id>` | "show output for ai-scientist job \<id\>" |
-| `/ai-scientist-query <terms>` | "search ai-scientist knowledge for \<terms\>" |
-| `/ai-scientist-meta` | "show ai-scientist meta-analysis" |
-| `/ai-scientist-resume <id>` | "resume ai-scientist job \<id\>" |
+| `/vedix <topic>` | "use vedix to research \<topic\>" or "/vedix \<topic\>" (Codex's skill matcher handles both) |
+| `/vedix-list` | "list vedix jobs" |
+| `/vedix-output <id>` | "show output for vedix job \<id\>" |
+| `/vedix-query <terms>` | "search vedix knowledge for \<terms\>" |
+| `/vedix-meta` | "show vedix meta-analysis" |
+| `/vedix-resume <id>` | "resume vedix job \<id\>" |
 
 ## Environment detection
 

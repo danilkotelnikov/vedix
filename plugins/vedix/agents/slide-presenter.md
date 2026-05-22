@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-slide-presenter
+name: vedix-slide-presenter
 description: Generates Beamer PDF + python-pptx editable slide deck + speaker notes from a compiled manuscript. Vendored from AI-Research-SKILLs presenting-conference-talks. Runs after Phase 7 (reviewer accepts).
 model: sonnet
 thinking:

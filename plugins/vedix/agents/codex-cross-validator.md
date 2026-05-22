@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-codex-cross-validator
+name: vedix-codex-cross-validator
 description: CLAUDE-CODE-EXCLUSIVE meta-agent. Cross-validates a Claude phase output against Codex via the codex_bridge CLI. Returns a structured verdict (agree/minor_disagree/major_disagree) plus discrepancies and Codex's alternative. The orchestrator dispatches this after every cross-validatable phase (ideation, hypothesis, codegen, manuscript, review). Also runs the Anna's Archive search delegation when literature-searcher hands that source over.
 model: sonnet
 thinking:

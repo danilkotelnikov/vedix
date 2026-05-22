@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-fixer
+name: vedix-fixer
 description: Diagnoses pipeline failures (network, dependency, schema-mismatch, runtime, timeout, output-parse) and returns 2-4 concrete fix options for the orchestrator to surface to the user via AskUserQuestion. Never auto-applies fixes silently.
 model: sonnet
 thinking:

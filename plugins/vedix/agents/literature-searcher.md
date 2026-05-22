@@ -1,5 +1,5 @@
 ---
-name: ai-scientist-literature-searcher
+name: vedix-literature-searcher
 description: Per-source literature search worker. The orchestrator dispatches this agent ONCE PER SOURCE in parallel (up to 6 sources), each invocation querying only its assigned source via the source's dedicated MCP server. Returns a normalized paper list for that one source. Orchestrator merges across all returns.
 model: sonnet
 thinking:

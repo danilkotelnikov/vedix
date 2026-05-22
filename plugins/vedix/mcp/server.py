@@ -485,7 +485,7 @@ TOOL_DEFINITIONS = [
     },
     {
         "name": "dispatch_phase",
-        "description": "Reentrant dispatch helper: returns the agent_name + subagent_type + inputs the host should pass to Task(). Used by the orchestrator pipeline to ask Claude Code to invoke a specific subagent.",
+        "description": "Reentrant dispatch helper: returns {agent_name, subagent_type=vedix-<name>, inputs} that the host should hand to Task() (Claude Code) / spawn_agent() (Codex) / inline reasoning (Gemini). The Python orchestrator uses this to delegate one subagent's work back to the host's native dispatch mechanism instead of making its own LLM calls.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -493,6 +493,61 @@ TOOL_DEFINITIONS = [
                 "inputs": {"type": "object"},
             },
             "required": ["agent_name", "inputs"],
+        },
+    },
+    {
+        "name": "configure_provider",
+        "description": "BYOK opt-in. Configure one of the 14 supported LLM providers (anthropic, openai, google, openrouter, together, deepseek, qwen, moonshot, zhipu, gigachat, yandexgpt, mistral, cohere, local) for use as the LLM-call fallback when host-native dispatch is unavailable (cron / CI / SaaS callers only). Inside Claude Code / Codex / Gemini, the host's native subagent mechanism is used instead and this tool is never needed. Optional `chain` sets the provider fallback order.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "provider": {
+                    "type": "string",
+                    "enum": ["anthropic", "openai", "google", "openrouter",
+                              "together", "deepseek", "qwen", "moonshot",
+                              "zhipu", "gigachat", "yandexgpt", "mistral",
+                              "cohere", "local"]
+                },
+                "api_key": {"type": "string"},
+                "chain": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional fallback chain (first provider tried first)."
+                },
+                "folder_id": {
+                    "type": "string",
+                    "description": "Yandex Cloud folder id (required for yandexgpt only)."
+                },
+                "base_url": {
+                    "type": "string",
+                    "description": "OpenAI-compatible base URL (required for local self-hosted only)."
+                },
+            },
+            "required": ["provider", "api_key"],
+        },
+    },
+    {
+        "name": "pipeline_continue",
+        "description": "Reserved for the async-continuation refactor (see SKILL.md > 'The dispatch contract'). Current synchronous run_pipeline returns the complete result and handles gates inline; this tool is a stub that returns {kind: 'not_implemented'} so future SKILL.md revisions can detect host capabilities.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "continuation_token": {"type": "string"},
+                "agent_output": {"type": "string"},
+                "user_choice": {"type": "string"},
+            },
+            "required": ["continuation_token"],
+        },
+    },
+    {
+        "name": "pipeline_cancel",
+        "description": "Reserved for the async-continuation refactor. Returns {kind: 'not_implemented'} today.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "continuation_token": {"type": "string"},
+            },
+            "required": ["continuation_token"],
         },
     },
     {
@@ -634,7 +689,7 @@ def handle_request(request):
                 if str(_lib) not in sys.path:
                     sys.path.insert(0, str(_lib))
                 from orchestrator.pipeline import Pipeline
-                from orchestrator.dispatch import get_dispatcher
+                from orchestrator.dispatch import get_dispatcher, BYOKSetupRequired
 
                 # The actual Task() callable lives in the host process.
                 # The orchestrator returns a stub-driven result; the host's
@@ -646,19 +701,92 @@ def handle_request(request):
                     host=tool_args.get("host", "claude_code"),
                 )
                 output_dir = Path(tool_args["output_dir"])
-                result = pipeline.run_full_pipeline(
-                    topic=tool_args["topic"],
-                    domain=tool_args["domain"],
-                    output_dir=output_dir,
-                    interactivity=tool_args.get("interactivity", "checkpoints"),
-                    use_bfts=tool_args.get("use_bfts", False),
-                )
+                try:
+                    result = pipeline.run_full_pipeline(
+                        topic=tool_args["topic"],
+                        domain=tool_args["domain"],
+                        output_dir=output_dir,
+                        interactivity=tool_args.get("interactivity", "checkpoints"),
+                        use_bfts=tool_args.get("use_bfts", False),
+                    )
+                except BYOKSetupRequired as exc:
+                    # The pipeline needs an LLM call but there's no host-native
+                    # dispatcher (we're not in Claude Code / Codex / Gemini)
+                    # AND no BYOK provider configured. Surface as a structured
+                    # gate so SKILL.md can AskUserQuestion. See SKILL.md >
+                    # 'BYOK opt-in — only when host-native unavailable'.
+                    result = {
+                        "kind": "ask_user",
+                        "gate_id": "byok_setup_needed",
+                        "question": (
+                            "Vedix needs to make an LLM call, but you're running outside "
+                            "an agentic CLI (Claude Code / Codex / Gemini / Antigravity) "
+                            "and no BYOK provider is configured. How do you want to proceed?"
+                        ),
+                        "options": [
+                            {"label": "Configure BYOK now",
+                             "description": "Add an LLM provider (Anthropic / OpenAI / Google / OpenRouter / GigaChat / YandexGPT / DeepSeek / Qwen / Moonshot / Zhipu / Mistral / Cohere / Together / self-hosted) via mcp__vedix__configure_provider, then resume."},
+                            {"label": "Run in degraded mode",
+                             "description": "Skip manuscript-writing phases. Corpus prep + classifier training still work with template-based synthetic negatives. Returns a corpus + trained classifier; you write the manuscript manually."},
+                            {"label": "Abort",
+                             "description": "Cancel this pipeline run."},
+                        ],
+                        "multi_select": False,
+                        "rationale": str(exc),
+                    }
             elif tool_name == "dispatch_phase":
                 # Reentrant: the orchestrator asks the host to dispatch a Task.
+                # Subagent type maps 1:1 to the `name` field in the matching
+                # plugins/vedix/agents/<agent_name>.md frontmatter — Claude Code
+                # discovers agents from that directory at session start, so the
+                # `vedix-` prefix is what enables `Task(subagent_type="vedix-<name>")`.
                 result = {
                     "agent_name": tool_args["agent_name"],
-                    "subagent_type": f"ai-scientist-{tool_args['agent_name']}",
+                    "subagent_type": f"vedix-{tool_args['agent_name']}",
                     "inputs": tool_args["inputs"],
+                }
+            elif tool_name == "configure_provider":
+                # BYOK setup. Only called after the SKILL.md surfaces the
+                # `byok_setup_needed` gate (host-native dispatch unavailable).
+                import sys, pathlib
+                _lib = pathlib.Path(__file__).resolve().parent / "lib"
+                if str(_lib) not in sys.path:
+                    sys.path.insert(0, str(_lib))
+                from orchestrator.byok.cli.provider import add_provider, set_chain
+                provider = tool_args["provider"]
+                api_key = tool_args["api_key"]
+                extra = {k: v for k, v in tool_args.items()
+                         if k not in ("provider", "api_key", "chain")}
+                add_provider(provider, api_key=api_key, confirm=False, **extra)
+                chain = tool_args.get("chain")
+                if chain:
+                    set_chain(chain)
+                result = {
+                    "ok": True,
+                    "provider": provider,
+                    "chain_active": chain or [provider],
+                    "message": f"BYOK provider {provider!r} configured; "
+                               f"pipeline can now resume via "
+                               f"mcp__vedix__pipeline_continue."
+                }
+            elif tool_name == "pipeline_continue" or tool_name == "pipeline_cancel":
+                # Resumption tools — these will be wired to the orchestrator's
+                # checkpoint/resume surface when the MCP↔orchestrator boundary
+                # is upgraded to async-continuation. For now the contract is
+                # documented in SKILL.md; the pipeline runs synchronously
+                # inside run_pipeline and gates are handled inline via
+                # interactivity="full" which delegates to AskUserQuestion
+                # through the host. This stub returns a clear "not implemented
+                # yet" so future SKILL.md revisions can detect host capabilities.
+                result = {
+                    "kind": "not_implemented",
+                    "message": (
+                        "pipeline_continue / pipeline_cancel are reserved for "
+                        "the async-continuation refactor. Today, run_pipeline "
+                        "executes synchronously with interactivity='full', "
+                        "and gates are surfaced inline via the host's "
+                        "AskUserQuestion. See SKILL.md > 'The dispatch contract'."
+                    ),
                 }
             elif tool_name == "validate_corpus":
                 import sys, pathlib, json
