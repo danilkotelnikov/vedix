@@ -176,24 +176,34 @@ async def query_openalex_oa(
     issn: str | None, concept_id: str | None,
     from_year: int, to_year: int | None,
     log: logging.Logger,
+    relax_oa_filter: bool = False,
 ) -> list[dict]:
     """Query OpenAlex for top-cited OA papers matching the filters.
 
     Filters:
-      - ``is_oa:true`` (genuine OA — not green-OA "repository preprint")
+      - ``is_oa:true`` (default — only papers with at least one OA mirror).
+        Set ``relax_oa_filter=True`` to drop this filter; we then walk
+        every ``locations[]`` entry (not just OA-tagged ones) looking
+        for arXiv / repository PDF URLs. Useful for fields where
+        OpenAlex's is_oa tag underestimates real coverage (notably
+        physics + CS: most arXiv preprints exist but aren't flagged
+        is_oa:true because the publisher version is paywalled).
       - ``type:article`` (not journals, datasets, book chapters)
       - ``language:en``
       - optional ISSN + concept restriction
 
-    The returned list keeps only works with a non-null
-    ``best_oa_location.pdf_url`` and a normalised DOI.
+    The returned list keeps only works with a non-null PDF URL
+    (best_oa_location, any oa_locations entry, any locations[]
+    entry in relaxed mode, or a publisher-pattern fallback like
+    the eLife CDN) and a normalised DOI.
     """
     filter_parts = [
-        "is_oa:true",
         "type:article",
         "language:en",
         f"from_publication_date:{from_year}-01-01",
     ]
+    if not relax_oa_filter:
+        filter_parts.insert(0, "is_oa:true")
     if to_year is not None:
         filter_parts.append(f"to_publication_date:{to_year}-12-31")
     if issn is not None:
@@ -208,7 +218,8 @@ async def query_openalex_oa(
         "mailto": email,
     }
     log.info(
-        "OpenAlex OA query: ISSN=%s concept=%s from=%s candidates=%d (target %d)",
+        "OpenAlex %s query: ISSN=%s concept=%s from=%s candidates=%d (target %d)",
+        "relaxed" if relax_oa_filter else "OA",
         issn, concept_id, from_year, candidates, target,
     )
     async with httpx.AsyncClient(
@@ -255,6 +266,36 @@ async def query_openalex_oa(
                 ((loc.get("source") or {}).get("display_name") or ""),
                 loc.get("license") or "",
             ))
+
+        # Relaxed mode: also walk ``locations[]`` (the full list,
+        # including non-OA entries) for any pdf_url. Some OpenAlex
+        # records have an arXiv preprint in `locations[]` that isn't
+        # mirrored into `oa_locations[]` because the publisher version
+        # is paywalled. Filter to PDF URLs from known preprint /
+        # repository hosts so we don't waste time on paywalled
+        # publisher CDNs that 403 anonymous requests.
+        if relax_oa_filter:
+            preprint_hosts = (
+                "arxiv.org", "biorxiv.org", "medrxiv.org", "chemrxiv.org",
+                "research-explorer", "osti.gov", "ncbi.nlm.nih.gov/pmc",
+                "europepmc.org", "ssoar.info", "hal.science", "hal.archives-ouvertes.fr",
+                "eprints.", "researchgate.net/publication", "psyarxiv.com",
+                "tspace.library.utoronto.ca", "escholarship.org",
+            )
+            for loc in (w.get("locations") or []):
+                url = loc.get("pdf_url")
+                if not url:
+                    continue
+                if any(url == u for (u, _, _) in candidate_urls):
+                    continue
+                # Only keep URLs from preprint / repository hosts.
+                if not any(host in url for host in preprint_hosts):
+                    continue
+                candidate_urls.append((
+                    url,
+                    ((loc.get("source") or {}).get("display_name") or ""),
+                    loc.get("license") or "",
+                ))
 
         # Last-resort publisher-pattern fallbacks when OpenAlex has no
         # pdf_url at all (eLife is the common case).
@@ -358,6 +399,7 @@ async def scrape_one_target(
     candidates: int, from_year: int, to_year: int,
     email: str,
     log: logging.Logger,
+    relax_oa_filter: bool = False,
 ) -> tuple[int, int]:
     """Scrape one (journal-or-discipline, discipline) target.
 
@@ -378,13 +420,16 @@ async def scrape_one_target(
     out_root.mkdir(parents=True, exist_ok=True)
 
     log.info("=" * 60)
-    log.info("=== %s -> %s (target %d papers, OA-direct)", venue_label, discipline, target_count)
+    log.info("=== %s -> %s (target %d papers, %s)",
+             venue_label, discipline, target_count,
+             "relaxed-filter" if relax_oa_filter else "OA-direct")
     log.info("=" * 60)
 
     works = await query_openalex_oa(
         target=target_count, candidates=candidates, email=email,
         issn=issn, concept_id=concept_id,
         from_year=from_year, to_year=to_year, log=log,
+        relax_oa_filter=relax_oa_filter,
     )
     if not works:
         log.warning("zero OA candidates for %s/%s", venue_label, discipline)
@@ -512,6 +557,7 @@ async def main_async(args, log: logging.Logger) -> int:
                 candidates=args.candidates_per_target,
                 from_year=args.from_year, to_year=args.to_year,
                 email=email, log=log,
+                relax_oa_filter=args.relax_oa_filter,
             )
         except Exception as exc:  # noqa: BLE001
             log.error("target %s/%s failed: %s", j, d, exc)
@@ -547,6 +593,13 @@ def main():
     ap.add_argument("--candidates-per-target", type=int, default=15,
                     help="OpenAlex candidates to fetch per target; the script "
                          "filters those with no pdf_url so overprovision.")
+    ap.add_argument("--relax-oa-filter", action="store_true",
+                    help="Drop the is_oa:true filter so the OpenAlex query "
+                         "returns paywalled-journal papers; then walk every "
+                         "locations[] entry for arxiv.org / biorxiv.org / "
+                         "osti.gov / pmc / hal.science / repository PDF URLs. "
+                         "Useful for physics + CS where arXiv covers ~95 "
+                         "percent but OpenAlex is_oa underestimates.")
     ap.add_argument("--from-year", type=int, default=2018)
     ap.add_argument("--to-year", type=int, default=2026)
     ap.add_argument("-v", "--verbose", action="count", default=0,
