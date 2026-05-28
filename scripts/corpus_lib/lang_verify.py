@@ -65,8 +65,16 @@ def filter_papers(
         pid = p.get("id", p.get("doi"))
         if not pid:
             continue
-        text_file = text_root / f"{pid}.txt"
-        if not text_file.exists():
+        # Match scrape_oa.py / scrape_scihub.py / prepare_corpus._pid:
+        # the on-disk filename has DOI slashes (and other non-alnum
+        # chars) replaced. The bare DOI form raw won't be found on
+        # disk, so try the safe-stem form too.
+        candidates = [
+            text_root / f"{pid}.txt",
+            text_root / f"{str(pid).replace('/', '_')}.txt",
+        ]
+        text_file = next((c for c in candidates if c.exists()), None)
+        if text_file is None:
             continue
         detected = detect_lang(text_file.read_text(encoding="utf-8")[:5000])
         if detected == target_lang:
