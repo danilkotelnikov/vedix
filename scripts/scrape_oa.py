@@ -110,6 +110,7 @@ DISCIPLINE_CONCEPTS: dict[str, str] = {
 # this venue: ``gold`` (fully OA at the venue) or ``hybrid`` (the
 # venue is paywalled but the specific paper is OA via author opt-in).
 OA_JOURNALS: dict[str, dict[str, str]] = {
+    # ---- Gold OA (entire venue is open access) ----------------------------
     "nature-communications":   {"issn": "2041-1723", "full_name": "Nature Communications", "oa_status": "gold"},
     "scientific-reports":      {"issn": "2045-2322", "full_name": "Scientific Reports",    "oa_status": "gold"},
     "plos-biology":            {"issn": "1544-9173", "full_name": "PLoS Biology",          "oa_status": "gold"},
@@ -123,6 +124,31 @@ OA_JOURNALS: dict[str, dict[str, str]] = {
     "frontiers-microbiology":  {"issn": "1664-302X", "full_name": "Frontiers in Microbiology", "oa_status": "gold"},
     "frontiers-chemistry":     {"issn": "2296-2646", "full_name": "Frontiers in Chemistry",    "oa_status": "gold"},
     "nature-comms-earth-env":  {"issn": "2662-4435", "full_name": "Communications Earth & Environment", "oa_status": "gold"},
+
+    # ---- Hybrid: venue is paywalled, but OpenAlex's is_oa:true filter ----
+    # selects the subset of papers that have a legal OA mirror (author's
+    # arXiv/bioRxiv preprint, PubMed Central deposit, institutional
+    # repository copy, or author-paid hybrid-OA at the journal). For
+    # register-classifier training the text content is what matters;
+    # arXiv preprints are ~98% identical to the published versions and
+    # are downloaded from arxiv.org directly under their CC-BY-SA /
+    # arXiv non-exclusive license. Same for bioRxiv (cc-by) and PMC
+    # (public-domain post-embargo deposits).
+    "nature-flagship":         {"issn": "0028-0836", "full_name": "Nature (preprint-mirrored subset)", "oa_status": "hybrid"},
+    "science-flagship":        {"issn": "0036-8075", "full_name": "Science (preprint-mirrored subset)", "oa_status": "hybrid"},
+    "cell-flagship":           {"issn": "0092-8674", "full_name": "Cell (preprint-mirrored subset)", "oa_status": "hybrid"},
+    "jacs":                    {"issn": "0002-7863", "full_name": "Journal of the American Chemical Society (preprint subset)", "oa_status": "hybrid"},
+    "angewandte":              {"issn": "1433-7851", "full_name": "Angewandte Chemie International Edition (preprint subset)", "oa_status": "hybrid"},
+    "chem-reviews":            {"issn": "0009-2665", "full_name": "Chemical Reviews (preprint subset)", "oa_status": "hybrid"},
+    "phys-rev-letters":        {"issn": "0031-9007", "full_name": "Physical Review Letters (preprint subset)", "oa_status": "hybrid"},
+    "nejm":                    {"issn": "0028-4793", "full_name": "New England Journal of Medicine (preprint subset)", "oa_status": "hybrid"},
+    "lancet":                  {"issn": "0140-6736", "full_name": "The Lancet (preprint subset)", "oa_status": "hybrid"},
+    "nature-medicine":         {"issn": "1078-8956", "full_name": "Nature Medicine (preprint subset)", "oa_status": "hybrid"},
+    "nature-physics":          {"issn": "1745-2473", "full_name": "Nature Physics (preprint subset)", "oa_status": "hybrid"},
+    "nature-chemistry":        {"issn": "1755-4330", "full_name": "Nature Chemistry (preprint subset)", "oa_status": "hybrid"},
+    "nature-materials":        {"issn": "1476-1122", "full_name": "Nature Materials (preprint subset)", "oa_status": "hybrid"},
+    "nature-geoscience":       {"issn": "1752-0894", "full_name": "Nature Geoscience (preprint subset)", "oa_status": "hybrid"},
+    "nature-machine-intel":    {"issn": "2522-5839", "full_name": "Nature Machine Intelligence (preprint subset)", "oa_status": "hybrid"},
 }
 
 
